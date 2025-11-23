@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ParkApp</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="img/icon-192.png">
+<link rel="apple-touch-icon" href="img/icon-192.png">
+<meta name="theme-color" content="#007AFF">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="loadingOverlay">
+  <div class="spinner"></div>
+  <p>ParkApp wird geladen...</p>
+</div>
+
+<div id="app" style="display:none;">
+
+  <div class="header-container">
+    <div class="header-controls-wrapper">
+        <div id="quota-display" class="karma-badge" style="display:none;" title="Dein Park-Kontingent">
+            <i class="fa-solid fa-clock"></i>
+            <span id="quota-value">-- h</span>
+        </div> 
+
+        <i id="refresh-app-btn" class="fa-solid fa-arrows-rotate clickable" title="Neu laden"></i>
+        <i id="theme-icon" class="fa-solid fa-sun clickable"></i>
+    </div>
+    
+    <div id="parking-status-widget" class="status-widget">
+        <div class="parking-spot-indicator" id="status-p1">
+            <span class="spot-label">P1</span>
+            <i class="fa-solid fa-circle-check status-icon"></i>
+        </div>
+        <div class="parking-spot-indicator" id="status-p2">
+            <span class="spot-label">P2</span>
+            <i class="fa-solid fa-circle-check status-icon"></i>
+        </div>
+    </div>
+  </div>
+  
+  <div id="userInfo" class="user-info-compact" style="display:none;">
+    <div class="user-details"> 
+      <i class="fa-regular fa-user"></i>
+      <span id="current-username"></span> 
+      <small id="current-role" class="user-role-label"></small> 
+    </div>
+    <button id="logout-btn" class="logout-btn-compact" title="Abmelden">
+        <i class="fa-solid fa-power-off"></i>
+    </button>
+  </div>
+
+  <div id="loginForm" class="card">
+    <h2>Anmelden</h2>
+    <div id="login-error" class="message-box error" style="display:none;"></div>
+    <div class="input-group">
+      <input type="email" id="login-identifier" placeholder="E-Mail" required>
+      <input type="password" id="login-password" placeholder="Passwort" required>
+    </div>
+    <button id="login-btn">Einloggen</button>
+    <p id="switch-register">Bewohner Registrierung? <span id="show-register" class="clickable">Hier klicken</span></p>
+    <p style="text-align: center; margin-top: 10px;" class="small-text"><span id="show-reset-password" class="clickable">Passwort vergessen?</span></p>
+  </div>
+
+  <div id="registerForm" class="card" style="display:none;">
+    <div id="register-error" class="message-box error" style="display:none;"></div>
+    <h2>Registrierung (Bewohner)</h2>
+    <div class="input-group">
+      <input type="email" id="register-email" placeholder="E-Mail" required>
+      <input type="password" id="register-password" minlength="6" placeholder="Passwort" required>
+      <input type="password" id="register-password-confirm" minlength="6" placeholder="Passwort bestätigen" required>
+      <input type="text" id="register-invite-code" placeholder="Haus-Code (vom Admin)" required>
+      
+      <div id="partei-selection-wrapper" class="hidden"> 
+        <select id="register-partei" required>
+          <option value="" disabled selected>Wohnung wählen</option>
+          <option value="Partei EG">Partei EG</option>
+          <option value="Partei 1.OG">Partei 1.OG</option>
+          <option value="Partei 2.OG">Partei 2.OG</option>
+          <option value="Admin">Verwaltung (Admin)</option>
+        </select>
+      </div>
+    </div>
+    <button id="register-btn">Registrieren</button>
+    <p id="switch-login">Zurück zum <span id="show-login" class="clickable">Login</span></p>
+  </div>
+
+  <div id="verifyEmailMessage" class="card" style="display:none;">
+    <h2>Bitte E-Mail bestätigen</h2>
+    <p class="small-text" style="text-align:center;">Link gesendet an <strong id="verify-email-address"></strong>.</p>
+    <button id="back-to-login-from-verify-btn">Zum Login</button>
+  </div>
+
+  <div id="resetPasswordForm" class="card" style="display:none;">
+    <button id="back-to-login-btn" class="back-button"><i class="fa-solid fa-chevron-left"></i> Zurück</button>
+    <h2>Passwort vergessen</h2>
+    <div id="reset-message" class="message-box" style="display:none;"></div>
+    <input type="email" id="reset-email" placeholder="E-Mail Adresse" required>
+    <button id="reset-password-btn">Link anfordern</button>
+  </div>
+
+  <div id="mainMenu" class="card" style="display:none;">
+    <h2>Park-Management</h2>
+    <div id="main-menu-message" class="message-box" style="display:none;"></div>
+    
+    <button id="book-btn" class="button-primary"><i class="fa-solid fa-calendar-plus"></i> Parkplatz reservieren</button>
+    <button id="invite-guest-btn" class="button-secondary"><i class="fa-solid fa-share-nodes"></i> Gast-Link senden (WhatsApp)</button>
+    <button id="overview-btn" class="button-secondary">Übersicht & Kalender</button>
+    
+    <button id="admin-btn" style="display:none;">Admin-Konsole</button>
+    <button id="profile-btn">Mein Profil & Kennzeichen</button>
+
+    <div id="my-upcoming-bookings" class="mt-15">
+        <p class="font-semibold">Deine aktiven Reservierungen:</p>
+        <div id="my-bookings-list"></div>
+    </div>
+  </div>
+
+  <div id="guestSection" class="card" style="display:none;">
+    <h2 id="guest-welcome-title">Willkommen!</h2>
+    <p style="text-align:center; margin-bottom:20px;" class="small-text">Du bist Gast bei <strong id="guest-host-name">...</strong></p>
+    <div id="guest-message" class="message-box" style="display:none;"></div>
+
+    <div id="guest-action-container">
+        <label>Dein Kennzeichen:</label>
+        <input type="text" id="guest-plate-input" placeholder="z.B. M-XY 123" style="text-transform:uppercase;">
+        
+        <div class="status-monitor-large">
+            <div class="status-card" id="guest-status-p1">
+                <span class="badge">P1</span>
+                <span class="status-text">Prüfe...</span>
+            </div>
+            <div class="status-card" id="guest-status-p2">
+                <span class="badge">P2</span>
+                <span class="status-text">Prüfe...</span>
+            </div>
+        </div>
+
+        <button id="guest-park-now-btn" class="button-success" style="font-size:1.2em; padding:15px; margin-top:15px;">
+            <i class="fa-solid fa-car-side"></i> JETZT PARKEN
+        </button>
+        
+        <button id="guest-reserve-btn" class="button-secondary" style="margin-top:10px;">
+            <i class="fa-regular fa-calendar"></i> Für später reservieren
+        </button>
+    </div>
+
+    <div id="guest-active-ticket" style="display:none; text-align:center;">
+        <div style="background:var(--success-color); color:white; padding:20px; border-radius:12px; margin-bottom:20px;">
+            <h1 style="margin:0; font-size:3em;" id="ticket-spot-id">P1</h1>
+            <p style="margin:5px 0;">Geparkt seit <span id="ticket-start-time">--:--</span></p>
+        </div>
+        <button id="guest-checkout-btn" class="button-danger">
+            <i class="fa-solid fa-person-walking-arrow-right"></i> Ich fahre jetzt (Freigeben)
+        </button>
+    </div>
+  </div>
+
+  <div id="bookingSection" class="card" style="display:none;">
+    <button id="back-to-menu-btn-booking" class="back-button"><i class="fa-solid fa-chevron-left"></i> Zurück</button>
+    <h2>Reservierung</h2>
+    <div id="booking-error" class="message-box" style="display:none;"></div>
+    
+    <label>Datum:</label>
+    <input type="date" id="booking-date" required>
+    
+    <div style="display:flex; gap:10px;">
+        <div style="flex:1;">
+            <label>Von:</label>
+            <input type="time" id="booking-start" required>
+        </div>
+        <div style="flex:1;">
+            <label>Bis:</label>
+            <input type="time" id="booking-end" required>
+        </div>
+    </div>
+
+    <label>Parkplatz:</label>
+    <select id="booking-spot" required>
+      <option value="any" selected>Egal (Automatisch)</option>
+      <option value="P1">Nur P1</option>
+      <option value="P2">Nur P2</option>
+    </select>
+    
+    <label>Kennzeichen (Optional):</label>
+    <input type="text" id="booking-plate" placeholder="M-AB 123">
+
+    <button id="book-submit-btn">Reservieren</button>
+  </div>
+
+  <div id="overviewSection" class="card" style="display:none;">
+    <button id="back-to-menu-btn-overview" class="back-button"><i class="fa-solid fa-chevron-left"></i> Zurück</button>
+    <h2>Belegungsplan</h2>
+    <input type="date" id="overview-date-picker" style="margin-bottom:15px;">
+    <div id="day-schedule-container">
+        <div class="timeline-labels">
+            <span>08:00</span><span>12:00</span><span>16:00</span><span>20:00</span>
+        </div>
+        <div class="spot-track" id="track-p1">
+            <span class="track-label">P1</span>
+            <div class="track-lanes" id="lanes-p1"></div>
+        </div>
+        <div class="spot-track" id="track-p2">
+            <span class="track-label">P2</span>
+            <div class="track-lanes" id="lanes-p2"></div>
+        </div>
+    </div>
+    <div id="booking-list-day" class="mt-15"></div>
+  </div>
+
+  <div id="profileSection" class="card" style="display:none;">
+    <button id="back-to-menu-btn-profile" class="back-button"><i class="fa-solid fa-chevron-left"></i> Zurück</button>
+    <h2>Mein Profil</h2>
+    <div id="profile-message" class="message-box" style="display:none;"></div>
+    <p><strong>Wohnung:</strong> <span id="profile-partei"></span></p> 
+    
+    <label>Mein Standard-Kennzeichen:</label>
+    <input type="text" id="profile-plate" placeholder="M-XX 99">
+    <button id="save-profile-btn" class="button-secondary">Speichern</button>
+    
+    <hr style="margin: 20px 0;">
+    <button id="change-password-toggle" class="button-secondary">Passwort ändern</button>
+    <div id="password-change-area" style="display:none; margin-top:10px;">
+        <input type="password" id="new-password" placeholder="Neues Passwort">
+        <button id="save-password-btn">Ändern</button>
+    </div>
+    <div class="app-version">ParkApp v1.0</div>
+  </div>
+
+  <div id="adminSection" class="card" style="display:none;">
+    <button id="back-to-menu-btn-admin" class="back-button"><i class="fa-solid fa-chevron-left"></i> Zurück</button>
+    <h2>Verwaltung</h2>
+    
+    <details class="admin-group">
+        <summary>Benutzer</summary>
+        <div class="admin-content" id="admin-user-list">Lade...</div>
+    </details>
+    <details class="admin-group">
+        <summary>Alle Buchungen (Liste)</summary>
+        <div class="admin-content" id="admin-booking-list">Lade...</div>
+    </details>
+  </div>
+
+</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
