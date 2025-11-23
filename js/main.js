@@ -16,6 +16,21 @@ import { initGuestView } from './views/guest.js';
 import { initAdminView, loadAdminData } from './views/admin.js';
 import { APP_VERSION } from './config.js';
 
+// --- HILFSFUNKTION: HAUS-CODE PRÜFEN ---
+function checkInviteCode() {
+    const codeInput = document.getElementById('register-invite-code');
+    const wrapper = document.getElementById('partei-selection-wrapper');
+    
+    if (codeInput && wrapper) {
+        // Wenn der Code "1234" ist, zeige das Dropdown
+        if (codeInput.value.trim() === '1234') {
+            wrapper.classList.remove('hidden');
+        } else {
+            wrapper.classList.add('hidden');
+        }
+    }
+}
+
 // --- GLOBALE EVENT LISTENER ---
 
 // Auth Buttons
@@ -23,8 +38,16 @@ dom.loginForm.querySelector('#login-btn').addEventListener('click', handleLogin)
 dom.registerForm.querySelector('#register-btn').addEventListener('click', handleRegister);
 document.getElementById('logout-btn').addEventListener('click', handleLogout);
 
+// Listener für das Eingabefeld (Haus-Code)
+document.getElementById('register-invite-code').addEventListener('input', checkInviteCode);
+
 // Navigation zwischen Login/Register
-document.getElementById('show-register').addEventListener('click', () => navigateTo(dom.registerForm));
+document.getElementById('show-register').addEventListener('click', () => {
+    // Felder zurücksetzen beim Wechsel
+    document.getElementById('register-invite-code').value = '';
+    document.getElementById('partei-selection-wrapper').classList.add('hidden');
+    navigateTo(dom.registerForm);
+});
 document.getElementById('show-login').addEventListener('click', () => navigateTo(dom.loginForm));
 document.getElementById('switch-login').addEventListener('click', () => navigateTo(dom.loginForm));
 
@@ -43,17 +66,20 @@ dom.themeIcon.addEventListener('click', () => {
     dom.themeIcon.className = isDark ? 'fa-solid fa-moon clickable' : 'fa-solid fa-sun clickable';
 });
 
-// Admin Button
-document.getElementById('admin-btn').addEventListener('click', () => {
-    initAdminView();
-    loadAdminData();
-    navigateTo(dom.adminSection);
-});
+// Admin Button (nur Logik, Sichtbarkeit regelt ui.js)
+const adminBtn = document.getElementById('admin-btn');
+if (adminBtn) {
+    adminBtn.addEventListener('click', () => {
+        initAdminView();
+        loadAdminData();
+        navigateTo(dom.adminSection);
+    });
+}
 
 
 // --- STARTUP LOGIK ---
 
-// Prüfen ob Gast-Link (Invite)
+// Prüfen ob Gast-Link (Invite) in der URL ist
 const urlParams = new URLSearchParams(window.location.search);
 const inviteId = urlParams.get('invite');
 let isGuestSession = !!inviteId;
@@ -64,7 +90,7 @@ if (isGuestSession) {
 
 onAuthStateChanged(auth, async (user) => {
     
-    // FALL A: GAST-MODUS
+    // FALL A: GAST-MODUS (via Link)
     if (isGuestSession) {
         if (!user) {
             await signInAnonymously(auth);
@@ -113,28 +139,30 @@ onAuthStateChanged(auth, async (user) => {
 
     if (user) {
         // Bewohner ist eingeloggt
-        // Profil laden (hier simulieren wir das Laden, da wir Daten nicht lokal cachen in diesem einfachen Setup)
-        // In einer echten App würdest du hier userDoc laden. 
-        // Wir verlassen uns auf die Daten, die wir beim Login/Register gesetzt haben oder laden sie kurz nach:
-        
+        // Profil laden
         import('./firebase.js').then(async ({ getDoc, getUserProfileDocRef }) => {
-            const docSnap = await getDoc(getUserProfileDocRef(user.uid));
-            if (docSnap.exists()) {
-                const userData = docSnap.data();
-                const appUser = { uid: user.uid, ...user, userData, isGuest: false };
-                
-                setCurrentUser(appUser);
-                updateUserInfoUI(appUser);
-                
-                // Dashboard starten
-                initDashboardView();
-                loadMyBookings();
-                initStatusWidget();
-                
-                navigateTo(dom.mainMenu);
-            } else {
-                // User existiert in Auth aber nicht in DB? Logout.
-                handleLogout();
+            try {
+                const docSnap = await getDoc(getUserProfileDocRef(user.uid));
+                if (docSnap.exists()) {
+                    const userData = docSnap.data();
+                    const appUser = { uid: user.uid, ...user, userData, isGuest: false };
+                    
+                    setCurrentUser(appUser);
+                    updateUserInfoUI(appUser);
+                    
+                    // Dashboard starten
+                    initDashboardView();
+                    loadMyBookings();
+                    initStatusWidget();
+                    
+                    navigateTo(dom.mainMenu);
+                } else {
+                    // User existiert in Auth aber nicht in DB? Logout.
+                    console.warn("User ohne Profil gefunden.");
+                    handleLogout();
+                }
+            } catch (e) {
+                console.error("Fehler beim Laden des Profils:", e);
             }
         });
 
