@@ -7,21 +7,13 @@ import { setUnsubscriber } from '../state.js';
 export function initDashboardView() {
     // Navigation Buttons
     document.getElementById('book-btn').addEventListener('click', () => {
-        // Datum/Zeit vorbefüllen
         dom.bookingDate.value = getTodayDateString();
         dom.bookingStart.value = getCurrentTimeString();
-        // Ende = Start + 4h (simpel berechnet, oder einfach leer lassen)
         navigateTo(dom.bookingSection);
     });
 
-    document.getElementById('overview-btn').addEventListener('click', () => {
-        navigateTo(dom.overviewSection);
-        // Hier würde später die Kalender-Logik kommen
-    });
-
-    document.getElementById('profile-btn').addEventListener('click', () => {
-        navigateTo(dom.profileSection);
-    });
+    document.getElementById('overview-btn').addEventListener('click', () => navigateTo(dom.overviewSection));
+    document.getElementById('profile-btn').addEventListener('click', () => navigateTo(dom.profileSection));
 
     // Zurück Buttons
     document.getElementById('back-to-menu-btn-booking').addEventListener('click', () => navigateTo(dom.mainMenu));
@@ -41,30 +33,38 @@ export function initDashboardView() {
             return;
         }
 
-        // ISO-Strings bauen
-        const startISO = `${date}T${start}`;
-        const endISO = `${date}T${end}`;
+        // Datum Logik bauen
+        const startObj = new Date(`${date}T${start}`);
+        let endObj = new Date(`${date}T${end}`);
 
-        if (new Date(startISO) >= new Date(endISO)) {
-            showMessage('booking-error', 'Ende muss nach Start sein.');
-            return;
+        // LOGIK FIX: Mitternachts-Überquerung
+        // Wenn Ende VOR Start liegt (z.B. Start 23:00, Ende 01:00),
+        // gehen wir davon aus, dass der nächste Tag gemeint ist.
+        if (endObj <= startObj) {
+            endObj.setDate(endObj.getDate() + 1); // +1 Tag
         }
+
+        // ISO-Strings für die Datenbank
+        const startISO = startObj.toISOString();
+        const endISO = endObj.toISOString();
 
         dom.bookSubmitBtn.disabled = true;
         dom.bookSubmitBtn.textContent = "Buche...";
 
-        const success = await createBooking(startISO, endISO, spot, plate);
+        // Aufruf der verbesserten Funktion
+        const result = await createBooking(startISO, endISO, spot, plate);
         
         dom.bookSubmitBtn.disabled = false;
         dom.bookSubmitBtn.textContent = "Reservieren";
 
-        if (success) {
+        if (result.success) {
+            // Bei Erfolg zurück zum Menü
             navigateTo(dom.mainMenu);
         }
     });
 }
 
-// Lädt die Liste "Meine Reservierungen" im Hauptmenü
+// Lädt die Liste "Meine Reservierungen"
 export function loadMyBookings() {
     const unsub = subscribeToMyBookings((bookings) => {
         dom.myBookingsList.innerHTML = '';
@@ -78,7 +78,6 @@ export function loadMyBookings() {
             const start = new Date(b.startZeit);
             const end = new Date(b.endZeit);
             
-            // Formatierung: "24.11. 14:00 - 18:00"
             const dateStr = start.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
             const timeStr = `${start.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})} - ${end.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}`;
 
@@ -106,7 +105,7 @@ export function loadMyBookings() {
     setUnsubscriber('myBookings', unsub);
 }
 
-// Ampel im Header aktualisieren (P1/P2)
+// Ampel
 export function initStatusWidget() {
     const unsub = subscribeToStatus((status) => {
         updateSpotUI('status-p1', status.P1);
@@ -120,9 +119,9 @@ function updateSpotUI(elementId, status) {
     const icon = el.querySelector('.status-icon');
     if (status === 'busy') {
         el.className = 'parking-spot-indicator busy';
-        icon.className = 'fa-solid fa-car-side status-icon'; // Auto Icon
+        icon.className = 'fa-solid fa-car-side status-icon'; 
     } else {
         el.className = 'parking-spot-indicator free';
-        icon.className = 'fa-solid fa-circle-check status-icon'; // Haken Icon
+        icon.className = 'fa-solid fa-circle-check status-icon'; 
     }
 }

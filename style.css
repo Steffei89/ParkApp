@@ -1,155 +1,405 @@
+:root {
+  /* --- FARBPALETTE (Standard / Light Mode) --- */
+  
+  /* Primary Brand Color */
+  --primary-color: #007AFF;
+  --primary-hover: #0063ce;
+  --primary-light: rgba(0, 122, 255, 0.1);
+
+  /* Status Farben */
+  --success-color: #34C759;
+  --success-bg: rgba(52, 199, 89, 0.15);
+  --error-color: #FF3B30;
+  --error-bg: rgba(255, 59, 48, 0.15);
+
+  /* Helle Farben & Hintergründe (Standard) */
+  /* NEU: Der designte Hintergrundverlauf für den hellen Modus */
+  --bg-body-gradient: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  /* Fallback Farbe, falls der Verlauf kurz lädt */
+  --bg-body-fallback: #F2F2F7;
+
+  --bg-card: #FFFFFF; /* Karten bleiben reinweiß für Kontrast */
+  --text-main: #1C1C1E;
+  --text-secondary: #8E8E93;
+  --border-color: #E5E5EA;
+  --input-bg: #F2F2F7; /* Inputs leicht abgesetzt vom weißen Kartenhintergrund */
+  
+  /* Schatten (etwas weicher für den hellen Hintergrund) */
+  --shadow-card: 0 8px 30px rgba(0, 0, 0, 0.08);
+  --shadow-hover: 0 10px 40px rgba(0, 0, 0, 0.12);
+
+  /* Widget Status Farben (Light) */
+  --status-free-text: #248a3d;
+  --status-free-bg: #e6f9e9;
+  --status-busy-text: #d63031;
+  --status-busy-bg: #ffecec;
+
+  /* Layout */
+  --radius-l: 20px;
+  --radius-m: 14px;
+  --radius-s: 8px;
+}
+
+/* --- DARK MODE VARIABLEN --- */
+[data-theme="dark"] {
+    /* NEU: Der designte Hintergrundverlauf für den dunklen Modus */
+    /* Ein tiefer, edler Mix aus Dunkelgrau und Mitternachtsblau */
+    --bg-body-gradient: linear-gradient(135deg, #1e2024 0%, #232526 100%);
+    --bg-body-fallback: #1c1c1e;
+
+    --bg-card: #2C2C2E; /* Karten etwas heller als der Hintergrund für Tiefe */
+    --text-main: #FFFFFF;
+    --text-secondary: #98989D;
+    --border-color: #38383A;
+    --input-bg: #3A3A3C; /* Inputs noch etwas heller */
+    
+    --primary-light: rgba(10, 132, 255, 0.2);
+    /* Schatten im Dark Mode subtiler */
+    --shadow-card: 0 8px 30px rgba(0, 0, 0, 0.3);
+
+    /* Widget Status Farben (Dark) */
+    --status-free-text: #63e684;
+    --status-free-bg: rgba(52, 199, 89, 0.2);
+    --status-busy-text: #ff6b6b;
+    --status-busy-bg: rgba(255, 59, 48, 0.2);
+}
+
+/* --- GRUNDGERÜST --- */
+* {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+}
+
 body {
-  /* Theme Variablen */
-  --text-color: #1d1d1f;
-  --background-color: #f5f5f7; 
-  
-  /* Light Mode Gradient */
-  --bg-gradient: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-  
-  /* Glassmorphismus */
-  --card-background: rgba(255, 255, 255, 0.75); 
-  --card-border: rgba(255, 255, 255, 0.6);
-  
-  --input-background: rgba(255, 255, 255, 0.6); 
-  
-  --primary-color: #007AFF; 
-  --primary-color-transparent: rgba(0, 122, 255, 0.2);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    
+    /* WICHTIGE ÄNDERUNG FÜR HINTERGRÜNDE */
+    background-color: var(--bg-body-fallback); /* Fallback */
+    background-image: var(--bg-body-gradient); /* Der eigentliche Verlauf */
+    background-attachment: fixed; /* Der Hintergrund bleibt stehen beim Scrollen (edler Effekt) */
+    background-size: cover;
 
-  --secondary-color: #ffffff;
-  --error-color: #ff3b30;
-  --success-color: #34c759; 
-  --border-color: #d1d1d6;
-  
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  
-  background: var(--bg-gradient);
-  background-attachment: fixed;
-  min-height: 100vh;
-  color: var(--text-color);
-  margin: 0;
-  padding: 0;
-  display: flex;
-  justify-content: center;
+    color: var(--text-main);
+    margin: 0;
+    padding: 20px 0;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    min-height: 100vh;
+    min-height: 100dvh;
+    /* Übergang auch für das Hintergrundbild */
+    transition: background-image 0.3s ease, background-color 0.3s ease, color 0.3s ease;
 }
 
-/* Dunkler Modus */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text-color: #f5f5f7;
-    --bg-gradient: linear-gradient(to bottom right, #141e30, #243b55);
-    --card-background: rgba(30, 30, 35, 0.7); 
-    --card-border: rgba(255, 255, 255, 0.1);
-    --input-background: rgba(0, 0, 0, 0.3); 
-    --primary-color: #0A84FF; 
-    --secondary-color: #1c1c1e;
-    --border-color: #38383a;
-  }
+#app {
+    width: 90%;
+    max-width: 420px;
+    margin-bottom: 50px;
+    position: relative; z-index: 1; /* Stellt sicher, dass der Inhalt über dem Hintergrund liegt */
 }
 
-/* Overlay */
+/* --- TYPOGRAFIE --- */
+h2 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    text-align: center;
+    margin-top: 0;
+    margin-bottom: 24px;
+    letter-spacing: -0.5px;
+}
+
+p, label {
+    line-height: 1.5;
+}
+
+.small-text {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.clickable {
+    cursor: pointer;
+    color: var(--primary-color);
+    font-weight: 500;
+}
+
+/* --- HEADER BEREICH --- */
+.header-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    padding: 0 4px;
+}
+
+.header-controls-wrapper {
+    display: flex;
+    gap: 12px;
+}
+
+.header-container i.clickable {
+    color: var(--text-main);
+    background: var(--bg-card);
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    box-shadow: var(--shadow-card);
+    transition: transform 0.1s ease;
+}
+
+.header-container i.clickable:active {
+    transform: scale(0.92);
+}
+
+/* --- PARKPLATZ STATUS WIDGET (AMPEL) --- */
+#parking-status-widget {
+    display: flex;
+    gap: 10px;
+}
+
+.parking-spot-indicator {
+    background: var(--bg-card);
+    padding: 8px 16px;
+    border-radius: 50px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    box-shadow: var(--shadow-card);
+    transition: all 0.3s ease;
+}
+
+.parking-spot-indicator.free {
+    color: var(--status-free-text);
+    background: var(--status-free-bg);
+    border: 1px solid transparent;
+}
+
+.parking-spot-indicator.busy {
+    color: var(--status-busy-text);
+    background: var(--status-busy-bg);
+    border: 1px solid transparent;
+}
+
+/* --- CARDS (KARTEN) --- */
+/* Karten haben jetzt einen leichten "Milchglas"-Effekt, damit der neue Hintergrund durchscheint */
+.card {
+    background: var(--bg-card);
+    /* Optional: Wenn du es noch moderner willst, entferne den Kommentar bei backdrop-filter */
+    /* backdrop-filter: blur(10px); */ 
+    /* background: rgba(255, 255, 255, 0.8); (für Light) bzw rgba(44, 44, 46, 0.8) (für Dark) nötig für Blur */
+
+    border-radius: var(--radius-l);
+    padding: 30px 24px;
+    box-shadow: var(--shadow-card);
+    margin-bottom: 20px;
+    border: 1px solid rgba(128, 128, 128, 0.05); /* Sehr subtiler Rand für Definition */
+    animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideUp { 
+    from { opacity:0; transform:translateY(15px) scale(0.98); } 
+    to { opacity:1; transform:translateY(0) scale(1); } 
+}
+
+/* --- FORMULARE & BUTTONS --- */
+input, select {
+    width: 100%;
+    padding: 16px;
+    margin-bottom: 16px;
+    border: none;
+    border-radius: var(--radius-m);
+    background: var(--input-bg);
+    color: var(--text-main);
+    font-size: 1rem;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    -webkit-appearance: none;
+}
+
+input:focus, select:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--primary-color);
+    background: var(--bg-card);
+}
+
+button {
+    width: 100%;
+    padding: 16px;
+    margin-bottom: 12px;
+    border: none;
+    border-radius: var(--radius-m);
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+}
+
+button:active {
+    transform: scale(0.97);
+    filter: brightness(0.9);
+}
+
+.button-primary {
+    background: var(--primary-color);
+    color: white;
+    box-shadow: 0 4px 12px rgba(0, 122, 255, 0.25);
+}
+.button-primary:hover {
+    background: var(--primary-hover);
+}
+
+.button-secondary {
+    background: var(--input-bg);
+    color: var(--primary-color);
+}
+.button-secondary:hover {
+    background: rgba(0, 0, 0, 0.05);
+}
+
+.button-success {
+    background: var(--success-color);
+    color: white;
+    box-shadow: 0 4px 12px rgba(52, 199, 89, 0.3);
+}
+
+.button-danger {
+    background: var(--error-color);
+    color: white;
+}
+
+.back-button {
+    background: transparent;
+    color: var(--text-secondary);
+    width: auto;
+    padding: 0;
+    margin-bottom: 20px;
+    justify-content: flex-start;
+    font-size: 0.9rem;
+}
+.back-button:hover {
+    color: var(--text-main);
+    background: transparent;
+}
+
+/* --- LISTEN & ELEMENTE --- */
+.booking-item {
+    background: var(--input-bg);
+    padding: 16px;
+    border-radius: var(--radius-m);
+    margin-bottom: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.button-small {
+    width: auto;
+    padding: 8px 14px;
+    font-size: 0.85rem;
+    margin-bottom: 0;
+    border-radius: var(--radius-s);
+}
+
+/* --- OVERLAY / LOADER --- */
 #loadingOverlay {
     position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-    background: var(--background-color); z-index: 2000;
+    /* Nimmt jetzt auch den Gradienten an */
+    background-image: var(--bg-body-gradient);
+    background-color: var(--bg-body-fallback);
+    z-index: 2000;
     display: flex; flex-direction: column; justify-content: center; align-items: center;
 }
 .spinner {
-    border: 4px solid var(--border-color); border-top: 4px solid var(--primary-color);
-    border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite;
-    margin-bottom: 15px;
+    border: 3px solid rgba(0,0,0,0.1); 
+    border-top: 3px solid var(--primary-color);
+    border-radius: 50%; width: 40px; height: 40px; 
+    animation: spin 0.8s linear infinite;
+    margin-bottom: 20px;
 }
 @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
-#app { width: 95%; max-width: 450px; margin-top: 20px; margin-bottom: 80px; }
-
-/* Header */
-.header-container { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-.header-controls-wrapper { display: flex; gap: 10px; align-items: center; }
-
-.header-container i.clickable {
-    font-size: 1.2em; background: var(--card-background);
-    width: 40px; height: 40px; border-radius: 50%;
-    display: flex; justify-content: center; align-items: center;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.05); cursor: pointer;
+/* --- GAST ANSICHT SPEZIAL --- */
+.status-monitor-large { 
+    display: flex; 
+    gap: 15px; 
+    margin: 25px 0; 
 }
-
-/* Parkplatz Status Widget (P1 P2) */
-#parking-status-widget {
-    display: flex; gap: 8px;
-}
-.parking-spot-indicator {
-    background: var(--card-background);
-    padding: 6px 12px; border-radius: 12px;
-    display: flex; align-items: center; gap: 6px;
-    font-weight: bold; border: 1px solid var(--card-border);
-    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-    transition: all 0.3s ease;
-}
-.parking-spot-indicator.free { color: var(--success-color); border-color: var(--success-color); background: rgba(52, 199, 89, 0.1); }
-.parking-spot-indicator.busy { color: var(--error-color); border-color: var(--error-color); background: rgba(255, 59, 48, 0.1); }
-
-/* Cards */
-.card {
-  background: var(--card-background);
-  backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-  border: 1px solid var(--card-border);
-  padding: 24px; border-radius: 20px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.05);
-  margin-bottom: 20px;
-  animation: slideUp 0.4s ease-out;
-}
-@keyframes slideUp { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }
-
-h2 { text-align: center; margin-bottom: 20px; font-weight: 700; color: var(--text-color); }
-
-/* Inputs & Buttons */
-input, select {
-  width: 100%; padding: 14px; margin-bottom: 15px;
-  border: 1px solid transparent; border-radius: 12px;
-  background: var(--input-background); color: var(--text-color);
-  font-size: 1em; transition: all 0.2s; box-sizing: border-box;
-}
-input:focus, select:focus { outline: none; border-color: var(--primary-color); background: var(--card-background); }
-
-button {
-  width: 100%; padding: 14px; margin-bottom: 10px;
-  border: none; border-radius: 14px;
-  font-size: 1em; font-weight: 600; cursor: pointer;
-  transition: transform 0.1s;
-}
-button:active { transform: scale(0.98); }
-
-.button-primary { background: var(--primary-color); color: white; box-shadow: 0 4px 12px rgba(0, 122, 255, 0.3); }
-.button-secondary { background: var(--secondary-color); color: var(--text-color); border: 1px solid var(--border-color); }
-.button-success { background: var(--success-color); color: white; box-shadow: 0 4px 12px rgba(52, 199, 89, 0.3); }
-.button-danger { background: var(--error-color); color: white; box-shadow: 0 4px 12px rgba(255, 59, 48, 0.3); }
-
-/* Guest Section Special Styles */
-.status-monitor-large { display: flex; gap: 15px; margin: 20px 0; }
 .status-card {
-    flex: 1; background: var(--secondary-color);
-    padding: 20px; border-radius: 16px; text-align: center;
-    border: 2px solid transparent; transition: all 0.3s;
+    flex: 1; 
+    background: var(--input-bg);
+    padding: 24px 10px; 
+    border-radius: var(--radius-m); 
+    text-align: center;
+    border: 2px solid transparent; 
+    transition: all 0.3s;
 }
-.status-card .badge { display: block; font-size: 1.5em; font-weight: 800; margin-bottom: 5px; }
-.status-card.free { border-color: var(--success-color); color: var(--success-color); background: rgba(52, 199, 89, 0.05); }
-.status-card.busy { border-color: var(--error-color); color: var(--error-color); opacity: 0.7; }
+.status-card .badge { 
+    display: block; font-size: 2em; font-weight: 800; margin-bottom: 8px; color: var(--text-main);
+}
+.status-card .status-text {
+    font-size: 0.9em; font-weight: 600; color: var(--text-secondary);
+}
 
-/* Timeline (Overview) */
-#day-schedule-container { position: relative; margin-top: 20px; }
-.timeline-labels { display: flex; justify-content: space-between; font-size: 0.8em; opacity: 0.5; margin-bottom: 5px; padding: 0 10px; }
-.spot-track { display: flex; align-items: center; margin-bottom: 10px; }
-.track-label { width: 30px; font-weight: bold; font-size: 0.9em; }
-.track-lanes { flex: 1; height: 30px; background: var(--input-background); border-radius: 15px; position: relative; overflow: hidden; }
+/* --- TIMELINE / ÜBERSICHT --- */
+#day-schedule-container { position: relative; margin-top: 30px; }
+.timeline-labels { 
+    display: flex; justify-content: space-between; 
+    font-size: 0.75em; color: var(--text-secondary); 
+    margin-bottom: 8px; padding: 0 2px; 
+    font-weight: 600;
+    text-transform: uppercase;
+}
+.spot-track { display: flex; align-items: center; margin-bottom: 16px; }
+.track-label { width: 35px; font-weight: 700; font-size: 1rem; color: var(--text-main); }
+.track-lanes { 
+    flex: 1; height: 40px; 
+    background: var(--input-bg); 
+    border-radius: 10px; 
+    position: relative; overflow: hidden; 
+}
 .booking-block {
-    position: absolute; top: 0; bottom: 0;
-    background: var(--primary-color); opacity: 0.8;
-    border-right: 1px solid white;
+    position: absolute; top: 4px; bottom: 4px;
+    background: var(--primary-color); opacity: 0.85;
+    border-radius: 6px; 
+    min-width: 4px;
+    border: 2px solid var(--bg-card); 
 }
-.booking-block.mine { background: var(--success-color); opacity: 1; }
+.booking-block.mine { 
+    background: var(--success-color); opacity: 1; z-index: 2;
+}
 
-/* Utilities */
-.hidden { display: none; }
-.message-box { padding: 10px; border-radius: 10px; margin-bottom: 15px; text-align: center; font-weight: 500; }
-.message-box.error { background: rgba(255, 59, 48, 0.1); color: var(--error-color); }
-.message-box.success { background: rgba(52, 199, 89, 0.1); color: var(--success-color); }
-.app-version { text-align: center; font-size: 0.8em; opacity: 0.4; margin-top: 20px; }
+/* --- MESSAGES --- */
+.message-box { 
+    padding: 14px; border-radius: var(--radius-m); 
+    margin-bottom: 20px; text-align: center; font-weight: 600; font-size: 0.9rem;
+}
+.message-box.error { background: var(--error-bg); color: var(--error-color); }
+.message-box.success { background: var(--success-bg); color: #15803d; }
+
+/* --- USER INFO HEADER --- */
+.user-info-compact {
+    position: absolute; 
+    top: 20px; left: 20px;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    display: flex; gap: 10px; align-items: center;
+}
+.user-role-label {
+    background: var(--input-bg); padding: 2px 8px; border-radius: 4px; font-weight: bold;
+    font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.5px;
+}
+
+/* --- UTILS --- */
+.hidden { display: none !important; }
+.mt-15 { margin-top: 24px; }
+.font-semibold { font-weight: 600; }
+hr { border: 0; height: 1px; background: var(--border-color); margin: 30px 0; }

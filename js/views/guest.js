@@ -1,49 +1,66 @@
 import * as dom from '../dom.js';
-import { createBooking } from '../services/booking.js';
+import { createBooking, deleteBooking } from '../services/booking.js'; // deleteBooking importiert
 import { showMessage } from '../ui.js';
 import { DEFAULT_PARKING_DURATION } from '../config.js';
 
+let currentGuestBookingId = null; // Wir merken uns die ID der aktuellen Sitzung
+
 export function initGuestView(hostData) {
-    // Willkommenstext
     dom.guestHostName.textContent = hostData.hostName;
     
-    // 1. "JETZT PARKEN" Button Logik
+    // --- JETZT PARKEN BUTTON ---
     dom.guestParkNowBtn.addEventListener('click', async () => {
         const plate = dom.guestPlateInput.value.trim();
         if (!plate) {
-            alert("Bitte gib dein Kennzeichen ein.");
+            showMessage('guest-message', "Bitte gib dein Kennzeichen ein.", 'error');
             return;
         }
 
+        // Einfaches Modal wäre schöner, aber confirm ist okay für den Anfang
         if(!confirm(`Jetzt Parkplatz für ca. ${DEFAULT_PARKING_DURATION} Stunden buchen?`)) return;
 
         dom.guestParkNowBtn.disabled = true;
         dom.guestParkNowBtn.textContent = "Buche...";
 
         const now = new Date();
-        const end = new Date(now.getTime() + DEFAULT_PARKING_DURATION * 60 * 60 * 1000); // +4 Stunden
+        // Endzeit berechnen (+4 Stunden Standard)
+        const end = new Date(now.getTime() + DEFAULT_PARKING_DURATION * 60 * 60 * 1000); 
 
-        // "any" = System sucht freien Platz
-        const success = await createBooking(now.toISOString(), end.toISOString(), 'any', plate, 'guest-message');
+        // Buchung anlegen
+        const result = await createBooking(now.toISOString(), end.toISOString(), 'any', plate, 'guest-message');
 
         dom.guestParkNowBtn.disabled = false;
         dom.guestParkNowBtn.textContent = "JETZT PARKEN";
 
-        if (success) {
-            showActiveTicket(plate, now);
+        if (result.success) {
+            // Erfolg! Zeige das Ticket an
+            currentGuestBookingId = result.bookingId; // ID speichern für Checkout
+            showActiveTicket(result.spot, now);
         }
     });
 
-    // 2. "Reservieren" Button (Schaltet um zur normalen Buchungsmaske, aber vereinfacht)
+    // --- CHECKOUT BUTTON (Ich fahre jetzt) ---
+    dom.guestCheckoutBtn.addEventListener('click', async () => {
+        if (!currentGuestBookingId) return;
+
+        if (confirm("Parkplatz wirklich wieder freigeben?")) {
+            const success = await deleteBooking(currentGuestBookingId);
+            if (success) {
+                alert("Gute Fahrt! Parkplatz ist wieder frei.");
+                location.reload(); // Seite neu laden für nächsten Gast
+            } else {
+                alert("Fehler beim Freigeben.");
+            }
+        }
+    });
+
+    // --- RESERVIEREN BUTTON (Umschalter) ---
     dom.guestReserveBtn.addEventListener('click', () => {
-        // Wir nutzen die normale Buchungsmaske, passen sie aber für Gäste an
         document.getElementById('bookingSection').style.display = 'block';
         document.getElementById('guestSection').style.display = 'none';
         
-        // Verstecke den "Zurück" Button, damit er nicht ins leere Menü kommt
         document.getElementById('back-to-menu-btn-booking').style.display = 'none';
         
-        // "Fake" Zurück-Button zum Gast-Screen
         const backBtn = document.createElement('button');
         backBtn.className = "back-button";
         backBtn.innerHTML = '<i class="fa-solid fa-chevron-left"></i> Zurück';
@@ -51,18 +68,17 @@ export function initGuestView(hostData) {
             document.getElementById('bookingSection').style.display = 'none';
             document.getElementById('guestSection').style.display = 'block';
             backBtn.remove();
-            document.getElementById('back-to-menu-btn-booking').style.display = 'flex'; // Reset
+            document.getElementById('back-to-menu-btn-booking').style.display = 'flex'; 
         };
         document.getElementById('bookingSection').prepend(backBtn);
     });
 }
 
-function showActiveTicket(plate, startTime) {
+function showActiveTicket(spotId, startTime) {
     dom.guestActionContainer.style.display = 'none';
     dom.guestActiveTicket.style.display = 'block';
     
+    // Zeige dem Gast WO er steht (P1 oder P2)
+    dom.ticketSpotId.textContent = spotId; 
     dom.ticketStartTime.textContent = startTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-    
-    // Hier könnte man noch logik einbauen, welcher Platz es genau geworden ist
-    // Fürs erste zeigen wir einfach "P1/P2" an oder den Erfolg.
 }

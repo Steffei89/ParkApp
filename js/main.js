@@ -31,6 +31,26 @@ function checkInviteCode() {
     }
 }
 
+// --- INITIALISIERUNG THEME (Dark/Light) ---
+function initTheme() {
+    const savedTheme = localStorage.getItem('theme');
+    const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+    // Wenn gespeichert 'dark' ist ODER nichts gespeichert ist aber System 'dark' ist:
+    if (savedTheme === 'dark' || (!savedTheme && systemDark)) {
+        document.body.setAttribute('data-theme', 'dark');
+        // Icon = Sonne (um zu hell zu wechseln)
+        if(dom.themeIcon) dom.themeIcon.className = 'fa-solid fa-sun clickable';
+    } else {
+        document.body.setAttribute('data-theme', 'light');
+        // Icon = Mond (um zu dunkel zu wechseln)
+        if(dom.themeIcon) dom.themeIcon.className = 'fa-solid fa-moon clickable';
+    }
+}
+// Direkt beim Laden ausführen
+initTheme();
+
+
 // --- GLOBALE EVENT LISTENER ---
 
 // Auth Buttons
@@ -43,7 +63,6 @@ document.getElementById('register-invite-code').addEventListener('input', checkI
 
 // Navigation zwischen Login/Register
 document.getElementById('show-register').addEventListener('click', () => {
-    // Felder zurücksetzen beim Wechsel
     document.getElementById('register-invite-code').value = '';
     document.getElementById('partei-selection-wrapper').classList.add('hidden');
     navigateTo(dom.registerForm);
@@ -58,15 +77,25 @@ document.getElementById('back-to-login-from-verify-btn').addEventListener('click
 
 // Header Controls
 dom.refreshBtn.addEventListener('click', () => window.location.reload());
+
+// THEME TOGGLE (Verbessert: Mit Speichern)
 dom.themeIcon.addEventListener('click', () => {
     const body = document.body;
-    const isDark = body.getAttribute('data-theme') === 'dark';
-    body.setAttribute('data-theme', isDark ? 'light' : 'dark');
-    // Icon ändern
-    dom.themeIcon.className = isDark ? 'fa-solid fa-moon clickable' : 'fa-solid fa-sun clickable';
+    // Prüfen was aktuell aktiv ist
+    const isCurrentlyDark = body.getAttribute('data-theme') === 'dark';
+    
+    // Umschalten
+    const newTheme = isCurrentlyDark ? 'light' : 'dark';
+    body.setAttribute('data-theme', newTheme);
+    
+    // Im Browser speichern
+    localStorage.setItem('theme', newTheme);
+    
+    // Icon anpassen
+    dom.themeIcon.className = isCurrentlyDark ? 'fa-solid fa-moon clickable' : 'fa-solid fa-sun clickable';
 });
 
-// Admin Button (nur Logik, Sichtbarkeit regelt ui.js)
+// Admin Button
 const adminBtn = document.getElementById('admin-btn');
 if (adminBtn) {
     adminBtn.addEventListener('click', () => {
@@ -76,10 +105,8 @@ if (adminBtn) {
     });
 }
 
-
 // --- STARTUP LOGIK ---
 
-// Prüfen ob Gast-Link (Invite) in der URL ist
 const urlParams = new URLSearchParams(window.location.search);
 const inviteId = urlParams.get('invite');
 let isGuestSession = !!inviteId;
@@ -94,21 +121,19 @@ onAuthStateChanged(auth, async (user) => {
     if (isGuestSession) {
         if (!user) {
             await signInAnonymously(auth);
-            return; // Wartet auf Reload mit User
+            return; 
         }
 
-        // Invite prüfen
         const validation = await validateInvite(inviteId);
         
         if (!validation.valid) {
             alert("Fehler: " + validation.error);
-            window.location.href = window.location.pathname; // Invite entfernen -> Normaler Login
+            window.location.href = window.location.pathname; 
             return;
         }
 
         const hostData = validation.hostData;
         
-        // Virtueller User für die Session
         const guestUser = {
             uid: user.uid,
             isGuest: true,
@@ -122,12 +147,9 @@ onAuthStateChanged(auth, async (user) => {
         setCurrentUser(guestUser);
         dom.loadingOverlay.style.display = 'none';
         
-        // UI anpassen für Gast
         dom.appContainer.style.display = 'block';
-        // Header ausblenden für Gäste (eigene Ansicht)
         if(dom.headerContainer) dom.headerContainer.style.display = 'none';
         
-        // Gast-View starten
         initGuestView(hostData);
         navigateTo(dom.guestSection);
         return;
@@ -138,8 +160,6 @@ onAuthStateChanged(auth, async (user) => {
     dom.appContainer.style.display = 'block';
 
     if (user) {
-        // Bewohner ist eingeloggt
-        // Profil laden
         import('./firebase.js').then(async ({ getDoc, getUserProfileDocRef }) => {
             try {
                 const docSnap = await getDoc(getUserProfileDocRef(user.uid));
@@ -150,14 +170,12 @@ onAuthStateChanged(auth, async (user) => {
                     setCurrentUser(appUser);
                     updateUserInfoUI(appUser);
                     
-                    // Dashboard starten
                     initDashboardView();
                     loadMyBookings();
                     initStatusWidget();
                     
                     navigateTo(dom.mainMenu);
                 } else {
-                    // User existiert in Auth aber nicht in DB? Logout.
                     console.warn("User ohne Profil gefunden.");
                     handleLogout();
                 }
@@ -167,7 +185,6 @@ onAuthStateChanged(auth, async (user) => {
         });
 
     } else {
-        // Nicht eingeloggt
         clearAllUnsubscribers();
         setCurrentUser(null);
         navigateTo(dom.loginForm);
