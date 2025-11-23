@@ -1,11 +1,16 @@
-// Import the functions you need from the SDKs you need
-import { initializeApp } from "firebase/app";
-import { getAnalytics } from "firebase/analytics";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js";
+import { 
+    getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut,
+    updatePassword, sendPasswordResetEmail, sendEmailVerification, EmailAuthProvider, reauthenticateWithCredential, deleteUser,
+    signInAnonymously 
+} from "https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js";
+import { 
+    getFirestore, doc, setDoc, collection, getDocs, query, where, getDoc, onSnapshot, addDoc, deleteDoc, updateDoc, 
+    orderBy, limit, runTransaction, writeBatch, Timestamp, increment, serverTimestamp, deleteField, arrayUnion 
+} from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
+import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-messaging.js";
 
-// Your web app's Firebase configuration
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
+// DEINE ECHTEN DATEN SIND JETZT HIER DRIN:
 const firebaseConfig = {
   apiKey: "AIzaSyBF-glZWR6fCAVEf7xREDzHz7R8-yc-AXI",
   authDomain: "parkapp-c6559.firebaseapp.com",
@@ -16,6 +21,42 @@ const firebaseConfig = {
   measurementId: "G-ZPNNTQMZQT"
 };
 
-// Initialize Firebase
+// Firebase starten
 const app = initializeApp(firebaseConfig);
-const analytics = getAnalytics(app);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const messaging = getMessaging(app);
+
+// Funktionen exportieren, damit andere Dateien sie nutzen können
+export { auth, db, messaging };
+export { 
+    createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut, updatePassword, 
+    sendPasswordResetEmail, sendEmailVerification, EmailAuthProvider, reauthenticateWithCredential, deleteUser,
+    signInAnonymously
+};
+export { getToken, onMessage }; 
+export { 
+    doc, setDoc, collection, getDocs, query, where, getDoc, onSnapshot, addDoc, deleteDoc, updateDoc, 
+    orderBy, limit, runTransaction, writeBatch, Timestamp, increment, serverTimestamp, deleteField, arrayUnion 
+};
+
+// --- Helper Funktionen für Datenbank-Pfade ---
+
+// Alle Buchungen (Parkplätze)
+export function getBookingsCollectionRef() { return collection(db, "bookings"); }
+
+// Benutzer-Profile (Bewohner)
+export function getUserProfileDocRef(uid) { return doc(db, "users", uid); }
+
+// Einladungs-Links für Gäste
+export function getInvitesCollectionRef() { return collection(db, "guest_invites"); }
+
+// Allgemeine Einstellungen (Admin)
+export function getSettingsDocRef() { return doc(db, 'app_settings', 'config'); }
+
+// Parkdauer-Optionen (z.B. "Kurzparker") - nutzen wir statt WashPrograms
+export function getWashProgramsCollectionRef() { return collection(db, "parking_durations"); }
+export function getWashProgramDocRef(docId) { return doc(db, "parking_durations", docId); }
+
+// Aktive Timer/Status
+export function getActiveTimerDocRef(partei) { return doc(db, "active_timers", partei); }
