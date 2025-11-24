@@ -5,15 +5,15 @@ import { showMessage, navigateTo } from '../ui.js';
 import { getTodayDateString } from '../utils.js';
 import { setUnsubscriber, getState } from '../state.js';
 
-// Globale Variablen für den Buchungsstatus
-let selectedDate = new Date(); // Datum-Objekt
-let selectedTime = new Date(); // Zeit-Objekt (nur HH:MM relevant)
-let durationMinutes = 120; // 2 Std Standard
+let selectedDate = new Date();
+let selectedTime = new Date();
+let durationMinutes = 120;
+let cameraStream = null;
 
 export function initDashboardView() {
-    // Buttons und Navigation
+    // --- NAVIGATION & BUTTONS ---
     document.getElementById('book-btn').addEventListener('click', () => {
-        resetBookingForm(); // Alles auf Standard (Jetzt) setzen
+        resetBookingForm();
         navigateTo(dom.bookingSection);
     });
 
@@ -25,28 +25,27 @@ export function initDashboardView() {
     document.getElementById('back-to-menu-btn-overview').addEventListener('click', () => navigateTo(dom.mainMenu));
     document.getElementById('back-to-menu-btn-profile').addEventListener('click', () => navigateTo(dom.mainMenu));
 
+    // UI Setup
     setupSmartBookingUI();
+    setupCameraUI();
 }
 
+// --- RESET FUNKTION (Standardwerte) ---
 function resetBookingForm() {
-    // 1. Datum auf Heute
     selectedDate = new Date();
     updateDateTabsUI('today');
-
-    // 2. Zeit auf Jetzt (gerundet auf nächste 5min)
     selectedTime = new Date();
+    // Runde auf nächste 5 Minuten
     const coeff = 1000 * 60 * 5;
     selectedTime = new Date(Math.ceil(selectedTime.getTime() / coeff) * coeff);
-    
-    // 3. Dauer Standard 2h
     durationMinutes = 120;
     updateDurationUI();
-
     updateTimeDisplay();
 }
 
+// --- SMART BOOKING UI LOGIK ---
 function setupSmartBookingUI() {
-    // --- 1. SPOT WAHL ---
+    // Parkplatz Karten
     dom.spotCards.forEach(card => {
         card.addEventListener('click', () => {
             dom.spotCards.forEach(c => c.classList.remove('selected'));
@@ -55,53 +54,24 @@ function setupSmartBookingUI() {
         });
     });
 
-    // --- 2. DATUM WAHL (Tabs) ---
+    // Datum Tabs
     const tabToday = document.getElementById('date-tab-today');
     const tabTomorrow = document.getElementById('date-tab-tomorrow');
     const tabPicker = document.getElementById('date-tab-picker');
     const picker = dom.hiddenDatePicker;
 
-    tabToday.onclick = () => {
-        selectedDate = new Date();
-        updateDateTabsUI('today');
-        updateTimeDisplay(); // Endzeit neu berechnen
-    };
-    tabTomorrow.onclick = () => {
-        selectedDate = new Date();
-        selectedDate.setDate(selectedDate.getDate() + 1);
-        updateDateTabsUI('tomorrow');
-        updateTimeDisplay();
-    };
-    // Kalender Picker Logik
-    tabPicker.onclick = () => picker.showPicker(); // Öffnet nativen Kalender
-    picker.onchange = () => {
-        if(picker.value) {
-            selectedDate = new Date(picker.value);
-            updateDateTabsUI('picker');
-            updateTimeDisplay();
-        }
-    };
+    tabToday.onclick = () => { selectedDate = new Date(); updateDateTabsUI('today'); updateTimeDisplay(); };
+    tabTomorrow.onclick = () => { selectedDate = new Date(); selectedDate.setDate(selectedDate.getDate() + 1); updateDateTabsUI('tomorrow'); updateTimeDisplay(); };
+    tabPicker.onclick = () => picker.showPicker();
+    picker.onchange = () => { if(picker.value) { selectedDate = new Date(picker.value); updateDateTabsUI('picker'); updateTimeDisplay(); } };
 
-    // --- 3. ZEIT KONTROLLE (Das Herzstück!) ---
-    
-    // [JETZT] Button
-    dom.btnSetNow.onclick = () => {
-        selectedTime = new Date();
-        updateTimeDisplay();
-    };
-
-    // Helfer für Zeit-Änderung
-    const changeTime = (minutes) => {
-        selectedTime.setMinutes(selectedTime.getMinutes() + minutes);
-        updateTimeDisplay();
-    };
-
-    // [ - ] und [ + ] Buttons mit "Hold to Scroll" Logik
+    // Zeitsteuerung
+    dom.btnSetNow.onclick = () => { selectedTime = new Date(); updateTimeDisplay(); };
+    const changeTime = (minutes) => { selectedTime.setMinutes(selectedTime.getMinutes() + minutes); updateTimeDisplay(); };
     setupHoldAction(dom.timeMinus, () => changeTime(-15));
     setupHoldAction(dom.timePlus, () => changeTime(15));
 
-
-    // --- 4. DAUER WAHL ---
+    // Dauer Chips
     dom.durationChips.forEach(chip => {
         chip.addEventListener('click', () => {
             durationMinutes = parseInt(chip.dataset.min);
@@ -110,13 +80,17 @@ function setupSmartBookingUI() {
         });
     });
 
-    // --- 5. BUCHEN ---
+    // Buchen Button
     dom.bookSubmitBtn.addEventListener('click', async () => {
-        // Wir bauen das Datum und die Startzeit zusammen
         const finalStart = new Date(selectedDate);
         finalStart.setHours(selectedTime.getHours(), selectedTime.getMinutes(), 0, 0);
-
         const finalEnd = new Date(finalStart.getTime() + durationMinutes * 60000);
+        
+        // Validierung: Endzeit muss nach Startzeit liegen
+        if (finalEnd <= finalStart) {
+             showMessage('booking-error', 'Endzeit ungültig.');
+             return;
+        }
 
         const startISO = finalStart.toISOString();
         const endISO = finalEnd.toISOString();
@@ -127,45 +101,147 @@ function setupSmartBookingUI() {
         dom.bookSubmitBtn.textContent = "Buche...";
 
         const result = await createBooking(startISO, endISO, spot, plate);
-        
         dom.bookSubmitBtn.disabled = false;
         dom.bookSubmitBtn.textContent = "FERTIG - BUCHEN";
-
-        if (result.success) {
-            navigateTo(dom.mainMenu);
-        }
+        if (result.success) navigateTo(dom.mainMenu);
     });
 }
 
-// Logik für "Gedrückt halten" (Hold Action)
-function setupHoldAction(button, action) {
-    let interval;
-    let timeout;
+// --- KAMERA & OCR (VERBESSERT) ---
+function setupCameraUI() {
+    dom.scanPlateBtn.addEventListener('click', startCamera);
+    dom.closeCameraBtn.addEventListener('click', stopCamera);
+    dom.snapBtn.addEventListener('click', takePictureAndScan);
+}
 
-    const start = () => {
-        action(); // Sofort einmal ausführen
-        timeout = setTimeout(() => {
-            interval = setInterval(() => {
-                action(); // Dann schnell wiederholen
-            }, 100); // Alle 100ms
-        }, 400); // Nach 400ms Warten
-    };
+async function startCamera() {
+    try {
+        dom.cameraOverlay.classList.remove('hidden');
+        dom.scanStatusText.textContent = "Bereit...";
+        // environment = Rückkamera
+        cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        dom.cameraVideo.srcObject = cameraStream;
+    } catch (e) {
+        console.error(e);
+        alert("Kamera konnte nicht gestartet werden.");
+        stopCamera();
+    }
+}
 
-    const stop = () => {
-        clearTimeout(timeout);
-        clearInterval(interval);
-    };
+function stopCamera() {
+    dom.cameraOverlay.classList.add('hidden');
+    if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+        cameraStream = null;
+    }
+}
 
-    // Touch und Maus Events abdecken
-    button.addEventListener('mousedown', start);
-    button.addEventListener('touchstart', (e) => { e.preventDefault(); start(); }); // preventDefault verhindert Geister-Klicks
+// HILFSFUNKTION: Bild verbessern (Schwarze Schrift verstärken)
+function preprocessImage(canvas) {
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
     
+    // Wir laufen durch jeden Pixel
+    for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        
+        // 1. Graustufe berechnen
+        const gray = (r + g + b) / 3;
+        
+        // 2. Harter Kontrast (Thresholding)
+        // Alles was dunkel ist (< 100) wird komplett SCHWARZ (Text)
+        // Alles was heller ist (> 100) wird komplett WEISS (Hintergrund)
+        // Das filtert Farben und leichte Schatten raus.
+        const val = gray < 110 ? 0 : 255;
+        
+        data[i] = val;     // R
+        data[i + 1] = val; // G
+        data[i + 2] = val; // B
+    }
+    ctx.putImageData(imageData, 0, 0);
+}
+
+async function takePictureAndScan() {
+    if (!cameraStream) return;
+    dom.scanStatusText.textContent = "Analysiere...";
+    dom.snapBtn.disabled = true;
+
+    const video = dom.cameraVideo;
+    const canvas = dom.cameraCanvas;
+    
+    // CROP: Wir schneiden nur den relevanten Streifen aus (wie im UI angezeigt)
+    // Breite: 85% des Bildes, Höhe: ca 20-25% des Bildes in der Mitte
+    const sWidth = video.videoWidth * 0.85;
+    const sHeight = video.videoHeight * 0.20;
+    const sx = (video.videoWidth - sWidth) / 2;
+    const sy = (video.videoHeight * 0.45) - (sHeight / 2); // Leicht oberhalb der Mitte
+
+    canvas.width = sWidth;
+    canvas.height = sHeight;
+    const ctx = canvas.getContext('2d');
+    
+    // Bildausschnitt zeichnen
+    ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, sWidth, sHeight);
+    
+    // VERBESSERUNG: Bild filtern (Nur Schwarz/Weiß)
+    preprocessImage(canvas);
+
+    try {
+        const { createWorker } = Tesseract;
+        const worker = await createWorker('deu'); 
+        
+        // WHITELIST: Wir erlauben Großbuchstaben, Zahlen, Bindestrich UND Leerzeichen
+        // Leerzeichen sind wichtig, um die Trennung zu erkennen
+        await worker.setParameters({
+          tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÜ0123456789- '
+        });
+        
+        const { data: { text } } = await worker.recognize(canvas);
+        await worker.terminate();
+
+        // BEREINIGUNG
+        // 1. Zeilenumbrüche weg
+        // 2. Alles was kein Buchstabe/Zahl/Leerzeichen/- ist weg
+        let clean = text.replace(/[^A-Z0-9- ]/g, '').trim();
+        
+        // 3. Mehrfache Leerzeichen zu einem Bindestrich machen
+        // Aus "BGL  ML 19" wird "BGL-ML-19"
+        clean = clean.replace(/\s+/g, '-');
+        
+        // 4. Falls am Anfang oder Ende noch Striche sind, weg damit
+        clean = clean.replace(/^-+|-+$/g, '');
+
+        // Validierung: Kennzeichen sind meist zwischen 3 und 9 Zeichen lang
+        if (clean.length >= 3 && clean.length <= 10) {
+            dom.bookingPlate.value = clean;
+            stopCamera();
+        } else {
+             alert(`Erkannt: "${clean}"\nDas sieht nicht wie ein Kennzeichen aus. Bitte näher ran oder Winkel ändern.`);
+             dom.scanStatusText.textContent = "Bitte näher ran...";
+        }
+    } catch (e) {
+        console.error(e);
+        alert("Fehler bei der Bildverarbeitung.");
+    }
+    dom.snapBtn.disabled = false;
+}
+
+// --- UI HELPER (Hold Button, Tabs etc.) ---
+
+function setupHoldAction(button, action) {
+    let interval; let timeout;
+    const start = () => { action(); timeout = setTimeout(() => { interval = setInterval(() => { action(); }, 100); }, 400); };
+    const stop = () => { clearTimeout(timeout); clearInterval(interval); };
+    button.addEventListener('mousedown', start);
+    button.addEventListener('touchstart', (e) => { e.preventDefault(); start(); });
     button.addEventListener('mouseup', stop);
     button.addEventListener('mouseleave', stop);
     button.addEventListener('touchend', stop);
 }
 
-// UI Helfer
 function updateDateTabsUI(activeType) {
     dom.dateTabs.forEach(t => t.classList.remove('selected'));
     if(activeType === 'today') document.getElementById('date-tab-today').classList.add('selected');
@@ -181,25 +257,18 @@ function updateDurationUI() {
 }
 
 function updateTimeDisplay() {
-    // Startzeit Anzeige (HH:MM)
     const hh = String(selectedTime.getHours()).padStart(2, '0');
     const mm = String(selectedTime.getMinutes()).padStart(2, '0');
     dom.displayStartTime.textContent = `${hh}:${mm}`;
-
-    // Endzeit berechnen (für Info Box)
-    // Achtung: Hier müssen wir selectedDate + selectedTime kombinieren für korrekte Berechnung über Mitternacht
     const combinedStart = new Date(selectedDate);
     combinedStart.setHours(selectedTime.getHours(), selectedTime.getMinutes());
-    
     const combinedEnd = new Date(combinedStart.getTime() + durationMinutes * 60000);
     const endHH = String(combinedEnd.getHours()).padStart(2, '0');
     const endMM = String(combinedEnd.getMinutes()).padStart(2, '0');
-    
     dom.displayEndTime.textContent = `${endHH}:${endMM}`;
 }
 
-
-// --- RESTLICHE FUNKTIONEN (MyBookings, Status, Overview) bleiben unverändert ---
+// --- RESTLICHE FUNKTIONEN (unverändert) ---
 
 export function loadMyBookings() {
     const unsub = subscribeToMyBookings((bookings) => {
@@ -215,10 +284,7 @@ export function loadMyBookings() {
             const timeStr = `${start.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})} - ${end.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}`;
             const div = document.createElement('div');
             div.className = 'booking-item';
-            div.innerHTML = `
-                <div><strong style="color:var(--primary)">${b.parkplatzId}</strong> <span style="font-weight:500">${dateStr}</span> <span class="small-text">${timeStr}</span><br><span class="small-text">${b.kennzeichen || 'Gast'}</span></div>
-                <button class="button-small button-danger delete-btn" style="width:auto; padding:5px 10px;" data-id="${b.id}"><i class="fa-solid fa-trash"></i></button>
-            `;
+            div.innerHTML = `<div><strong style="color:var(--primary)">${b.parkplatzId}</strong> <span style="font-weight:500">${dateStr}</span> <span class="small-text">${timeStr}</span><br><span class="small-text">${b.kennzeichen || 'Gast'}</span></div><button class="button-small button-danger delete-btn" style="width:auto; padding:5px 10px;" data-id="${b.id}"><i class="fa-solid fa-trash"></i></button>`;
             div.querySelector('.delete-btn').addEventListener('click', async (e) => {
                 if(confirm("Reservierung löschen?")) { await deleteBooking(e.target.closest('button').dataset.id); }
             });
@@ -239,52 +305,38 @@ export function initStatusWidget() {
 function updateSpotUI(elementId, status) {
     const el = document.getElementById(elementId);
     const icon = el.querySelector('.status-icon');
-    if (status === 'busy') {
-        el.className = 'parking-spot-pill busy';
-        icon.className = 'fa-solid fa-car-side status-icon'; 
-    } else {
-        el.className = 'parking-spot-pill free';
-        icon.className = 'fa-solid fa-circle-check status-icon'; 
-    }
+    if (status === 'busy') { el.className = 'parking-spot-pill busy'; icon.className = 'fa-solid fa-car-side status-icon'; }
+    else { el.className = 'parking-spot-pill free'; icon.className = 'fa-solid fa-circle-check status-icon'; }
 }
 
-// Overview Code
 export function initOverviewView() {
     const datePicker = dom.overviewDatePicker;
     const dateLabel = dom.overviewDateLabel;
     let currentDateObj = new Date();
-    
     const updateDateDisplay = () => {
         const yyyy = currentDateObj.getFullYear();
         const mm = String(currentDateObj.getMonth() + 1).padStart(2, '0');
         const dd = String(currentDateObj.getDate()).padStart(2, '0');
         const isoDate = `${yyyy}-${mm}-${dd}`;
         datePicker.value = isoDate;
-
         const today = new Date();
         const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
         const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
         const reset = d => d.setHours(0,0,0,0);
         const curTime = reset(new Date(currentDateObj));
-        
         if (curTime === reset(today)) dateLabel.textContent = "Heute";
         else if (curTime === reset(tomorrow)) dateLabel.textContent = "Morgen";
         else if (curTime === reset(yesterday)) dateLabel.textContent = "Gestern";
         else dateLabel.textContent = currentDateObj.toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' });
-        
         loadData(isoDate);
     };
-
     const loadData = (dateStr) => {
         const unsub = subscribeToReservationsForDate(dateStr, (bookings) => renderTimeline(bookings, dateStr));
         setUnsubscriber('overview', unsub);
     };
-    
-    // Init Listener
     if(dom.prevDayBtn) dom.prevDayBtn.onclick = () => { currentDateObj.setDate(currentDateObj.getDate() - 1); updateDateDisplay(); };
     if(dom.nextDayBtn) dom.nextDayBtn.onclick = () => { currentDateObj.setDate(currentDateObj.getDate() + 1); updateDateDisplay(); };
     datePicker.onchange = () => { if(datePicker.value) { currentDateObj = new Date(datePicker.value); updateDateDisplay(); }};
-    
     updateDateDisplay();
 }
 
@@ -295,7 +347,6 @@ function renderTimeline(bookings, dateStr) {
     containerP1.innerHTML = ''; containerP2.innerHTML = ''; detailsList.innerHTML = '';
     const getMinutes = (dateObj) => dateObj.getHours() * 60 + dateObj.getMinutes();
     const { currentUser } = getState();
-
     bookings.forEach(b => {
         const start = new Date(b.startZeit);
         const end = new Date(b.endZeit);
@@ -306,16 +357,13 @@ function renderTimeline(bookings, dateStr) {
         if (end < dayEnd) endMin = getMinutes(end);
         const widthPercent = ((endMin - startMin) / 1440) * 100;
         const leftPercent = (startMin / 1440) * 100;
-
         const el = document.createElement('div');
         el.className = 'timeline-block';
         el.style.left = `${leftPercent}%`;
         el.style.width = `${widthPercent}%`;
-        
         if (currentUser && b.userId === currentUser.uid) el.classList.add('mine');
         else if (b.partei === 'Admin') el.classList.add('admin');
         else el.classList.add('others');
-
         el.addEventListener('click', () => {
             document.querySelectorAll('.timeline-block').forEach(x => x.style.opacity = '0.6');
             el.style.opacity = '1';
