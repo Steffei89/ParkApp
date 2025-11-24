@@ -11,7 +11,7 @@
   --danger-bg: rgba(255, 59, 48, 0.1);
 
   /* Light Theme Defaults */
-  --bg-body-gradient: linear-gradient(135deg, #f0f9ff 0%, #cbebff 100%); /* Himmelblau */
+  --bg-body-gradient: linear-gradient(135deg, #f0f9ff 0%, #cbebff 100%);
   --bg-fallback: #F2F2F7;
   
   --bg-card: #FFFFFF;
@@ -29,11 +29,10 @@
 }
 
 [data-theme="dark"] {
-  /* Dark Theme Defaults */
-  --bg-body-gradient: linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%); /* Mitternacht Blau */
+  --bg-body-gradient: linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%);
   --bg-fallback: #0f172a;
 
-  --bg-card: #1e293b; /* Etwas heller als Hintergrund */
+  --bg-card: #1e293b;
   --text-main: #FFFFFF;
   --text-secondary: #94a3b8;
   --border: #334155;
@@ -48,10 +47,9 @@
 body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     
-    /* Hintergrund Gradient */
     background: var(--bg-fallback); 
     background-image: var(--bg-body-gradient);
-    background-attachment: fixed; /* Fixiert den Verlauf beim Scrollen */
+    background-attachment: fixed;
     
     color: var(--text-main);
     margin: 0; padding: 0;
@@ -63,7 +61,7 @@ body {
 #app {
     width: 100%; max-width: 480px;
     padding: 20px;
-    padding-bottom: 80px; /* Platz fürs Scrollen */
+    padding-bottom: 80px;
 }
 
 h2 { margin: 0 0 20px 0; font-size: 1.4rem; font-weight: 700; text-align: center; }
@@ -77,18 +75,15 @@ p { margin: 0 0 10px 0; line-height: 1.5; }
 .w-100 { width: 100%; }
 .hidden { display: none !important; }
 
-/* --- NEW APP HEADER (Rund & Schwebend) --- */
+/* --- NEW APP HEADER --- */
 .app-top-bar {
     display: flex; justify-content: space-between; align-items: center;
     background: var(--header-bg);
     backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
     padding: 12px 16px;
-    
-    /* Hier ist die Änderung für die Rundung: */
     border-radius: var(--radius-l); 
     margin-bottom: 24px;
     box-shadow: var(--shadow);
-    
     position: sticky; top: 10px; z-index: 100;
 }
 
@@ -265,3 +260,69 @@ button:disabled { opacity: 0.6; cursor: not-allowed; }
     position: absolute; top: 0; left: 0; width: 100%; height: 100%;
     opacity: 0; cursor: pointer; margin: 0; padding: 0;
 }
+
+/* --- NEW: PARKPLATZ WAHL & CHIPS (SMART UI) --- */
+.section-label { font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; margin-bottom: 8px; display: block; }
+
+.spot-selector-container {
+    display: flex; gap: 10px; margin-top: 5px;
+}
+.spot-card {
+    flex: 1; background: var(--input-bg); padding: 15px 5px; border-radius: var(--radius-m);
+    text-align: center; cursor: pointer; border: 2px solid transparent; transition: all 0.2s;
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+}
+.spot-card i { font-size: 1.5rem; color: var(--text-secondary); }
+.spot-card span { font-size: 0.9rem; font-weight: 600; color: var(--text-main); }
+.spot-card.selected { border-color: var(--primary); background: rgba(0, 122, 255, 0.05); }
+.spot-card.selected i { color: var(--primary); }
+
+/* DATE TABS */
+.date-tabs-wrapper {
+    display: flex; background: var(--input-bg); padding: 4px; border-radius: var(--radius-m); gap: 4px;
+}
+.date-tab {
+    flex: 1; padding: 10px; text-align: center; font-size: 0.9rem; font-weight: 600;
+    color: var(--text-secondary); border-radius: var(--radius-s); cursor: pointer; transition: all 0.2s;
+}
+.date-tab.selected { background: var(--bg-card); color: var(--primary); box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+.date-tab.icon-tab { flex: 0.4; font-size: 1.1rem; }
+
+/* TIME CONTROL */
+.time-control-container { display: flex; align-items: stretch; gap: 10px; }
+.now-button {
+    width: 80px; background: var(--primary); color: white; border-radius: var(--radius-m);
+    flex-direction: column; gap: 5px; font-size: 0.8rem; margin: 0; padding: 0;
+}
+.now-button i { font-size: 1.2rem; }
+.now-button:active { transform: scale(0.95); }
+
+.time-stepper {
+    flex: 1; display: flex; align-items: center; justify-content: space-between;
+    background: var(--input-bg); border-radius: var(--radius-m); padding: 5px;
+}
+.step-btn {
+    width: 50px; height: 50px; background: var(--bg-card); border-radius: var(--radius-s);
+    color: var(--text-main); font-size: 1.2rem; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin: 0;
+}
+.step-btn:active { background: #ddd; transform: scale(0.9); }
+.huge-time-display {
+    font-size: 1.8rem; font-weight: 800; color: var(--text-main); letter-spacing: 1px;
+    font-variant-numeric: tabular-nums;
+}
+
+/* DURATION CHIPS */
+.duration-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 5px; }
+.chip-btn {
+    flex: 1; min-width: 60px; padding: 10px; background: var(--input-bg); border: 1px solid transparent;
+    border-radius: 50px; font-size: 0.85rem; color: var(--primary); margin: 0;
+}
+.chip-btn:hover { background: rgba(0,0,0,0.05); }
+.chip-btn.selected { background: var(--primary); color: white; box-shadow: 0 4px 10px rgba(0,122,255,0.3); }
+
+/* SUMMARY */
+.summary-box {
+    background: rgba(0, 122, 255, 0.1); border-radius: var(--radius-m); padding: 15px;
+    color: var(--primary); text-align: center; font-weight: 500; display: flex; align-items: center; justify-content: center; gap: 10px;
+}
+.btn-large { padding: 18px; font-size: 1.1rem; }

@@ -194,40 +194,56 @@
 
   <div id="bookingSection" class="card" style="display:none;">
     <button id="back-to-menu-btn-booking" class="back-button"><i class="fa-solid fa-chevron-left"></i> Zurück</button>
-    <h2>Neue Reservierung</h2>
-    <div id="booking-error" class="message-box" style="display:none;"></div>
     
-    <div class="form-group">
-        <label>Datum</label>
-        <input type="date" id="booking-date" required>
+    <label class="section-label">1. WO?</label>
+    <div class="spot-selector-container mb-3">
+        <input type="hidden" id="booking-spot" value="any">
+        <div class="spot-card selected" data-value="any"><i class="fa-solid fa-shuffle"></i><span>Egal</span></div>
+        <div class="spot-card" data-value="P1"><i class="fa-solid fa-square-parking"></i><span>P1</span></div>
+        <div class="spot-card" data-value="P2"><i class="fa-solid fa-square-parking"></i><span>P2</span></div>
     </div>
     
-    <div class="row-inputs">
-        <div class="form-group">
-            <label>Von</label>
-            <input type="time" id="booking-start" required>
-        </div>
-        <div class="form-group">
-            <label>Bis</label>
-            <input type="time" id="booking-end" required>
-        </div>
+    <label class="section-label">2. WANN?</label>
+    <div class="date-tabs-wrapper mb-3">
+        <input type="hidden" id="booking-date">
+        <div class="date-tab selected" id="date-tab-today">HEUTE</div>
+        <div class="date-tab" id="date-tab-tomorrow">MORGEN</div>
+        <div class="date-tab icon-tab" id="date-tab-picker"><i class="fa-regular fa-calendar"></i></div>
+        <input type="date" id="hidden-date-picker" style="position:absolute; visibility:hidden; width:1px;">
     </div>
 
-    <div class="form-group">
-        <label>Parkplatz</label>
-        <select id="booking-spot" required>
-          <option value="any" selected>Egal (Automatisch)</option>
-          <option value="P1">Nur P1</option>
-          <option value="P2">Nur P2</option>
-        </select>
+    <label class="section-label">3. START?</label>
+    <div class="time-control-container mb-3">
+        <input type="hidden" id="booking-start"> <button id="btn-set-now" class="now-button"><i class="fa-solid fa-bolt"></i> JETZT</button>
+        
+        <div class="time-stepper">
+            <button class="step-btn" id="time-minus"><i class="fa-solid fa-minus"></i></button>
+            <div class="huge-time-display" id="display-start-time">--:--</div>
+            <button class="step-btn" id="time-plus"><i class="fa-solid fa-plus"></i></button>
+        </div>
     </div>
     
-    <div class="form-group">
-        <label>Kennzeichen (Optional)</label>
-        <input type="text" id="booking-plate" placeholder="M-AB 123">
+    <label class="section-label">4. WIE LANGE?</label>
+    <div class="duration-chips mb-3">
+        <input type="hidden" id="booking-duration" value="120"> <button class="chip-btn" data-min="60">1h</button>
+        <button class="chip-btn selected" data-min="120">2h</button>
+        <button class="chip-btn" data-min="240">4h</button>
+        <button class="chip-btn" data-min="480">8h</button>
+        <button class="chip-btn" data-min="1440">24h</button>
     </div>
 
-    <button id="book-submit-btn" class="button-primary mt-2">Reservieren</button>
+    <div class="summary-box">
+        <i class="fa-regular fa-clock"></i>
+        <span>Bis <strong id="display-end-time">--:--</strong> Uhr reserviert</span>
+    </div>
+
+    <div class="form-group mt-2" style="opacity:0.8;">
+        <input type="text" id="booking-plate" placeholder="Kennzeichen (Optional)" style="padding:10px; font-size:0.9rem;">
+    </div>
+
+    <button id="book-submit-btn" class="button-primary btn-large pulse-animation mt-2">
+        FERTIG - BUCHEN
+    </button>
   </div>
 
   <div id="overviewSection" class="card" style="display:none;">

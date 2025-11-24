@@ -2,14 +2,14 @@
 export const loadingOverlay = document.getElementById("loadingOverlay");
 export const appContainer = document.getElementById("app");
 
-// NEUER Header (Wrapper) & Status
+// NEUER Header & Status
 export const appHeader = document.getElementById("app-header");
 export const parkingStatusWidget = document.getElementById("parking-status-widget");
 export const refreshBtn = document.getElementById("refresh-app-btn");
 export const themeIcon = document.getElementById("theme-icon");
 export const logoutBtn = document.getElementById("logout-btn");
 
-// Status Elemente (Pills)
+// Status Elemente
 export const statusP1 = document.getElementById("status-p1");
 export const statusP2 = document.getElementById("status-p2");
 
@@ -44,13 +44,25 @@ export const ticketSpotId = document.getElementById("ticket-spot-id");
 export const ticketStartTime = document.getElementById("ticket-start-time");
 export const guestCheckoutBtn = document.getElementById("guest-checkout-btn");
 
-// Booking Elements
-export const bookingDate = document.getElementById("booking-date");
-export const bookingStart = document.getElementById("booking-start");
-export const bookingEnd = document.getElementById("booking-end");
+// --- SMART BOOKING ELEMENTS (NEU) ---
 export const bookingSpot = document.getElementById("booking-spot");
+export const bookingDate = document.getElementById("booking-date"); // Hidden Input
+export const bookingStart = document.getElementById("booking-start"); // Hidden Input
+export const bookingDuration = document.getElementById("booking-duration"); // Hidden Input
 export const bookingPlate = document.getElementById("booking-plate");
 export const bookSubmitBtn = document.getElementById("book-submit-btn");
+
+export const spotCards = document.querySelectorAll('.spot-card');
+export const dateTabs = document.querySelectorAll('.date-tab');
+export const hiddenDatePicker = document.getElementById("hidden-date-picker");
+
+export const btnSetNow = document.getElementById("btn-set-now");
+export const timeMinus = document.getElementById("time-minus");
+export const timePlus = document.getElementById("time-plus");
+export const displayStartTime = document.getElementById("display-start-time");
+
+export const durationChips = document.querySelectorAll('.chip-btn');
+export const displayEndTime = document.getElementById("display-end-time");
 
 // Overview Elements
 export const overviewDatePicker = document.getElementById("overview-date-picker");
