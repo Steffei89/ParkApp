@@ -1,5 +1,6 @@
 import * as dom from '../dom.js';
 import { createBooking, subscribeToMyBookings, deleteBooking, subscribeToStatus } from '../services/booking.js';
+import { createGuestLink } from '../services/invite.js'; // <--- NEU: Import hinzugefügt
 import { showMessage, navigateTo } from '../ui.js';
 import { getTodayDateString, getCurrentTimeString } from '../utils.js';
 import { setUnsubscriber } from '../state.js';
@@ -11,6 +12,9 @@ export function initDashboardView() {
         dom.bookingStart.value = getCurrentTimeString();
         navigateTo(dom.bookingSection);
     });
+
+    // <--- NEU: Der Gast-Link Button funktioniert jetzt
+    document.getElementById('invite-guest-btn').addEventListener('click', createGuestLink);
 
     document.getElementById('overview-btn').addEventListener('click', () => navigateTo(dom.overviewSection));
     document.getElementById('profile-btn').addEventListener('click', () => navigateTo(dom.profileSection));

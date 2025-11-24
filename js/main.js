@@ -39,11 +39,11 @@ function initTheme() {
     // Wenn gespeichert 'dark' ist ODER nichts gespeichert ist aber System 'dark' ist:
     if (savedTheme === 'dark' || (!savedTheme && systemDark)) {
         document.body.setAttribute('data-theme', 'dark');
-        // Icon = Sonne (um zu hell zu wechseln)
+        // Icon = Sonne (damit man zurück zu Hell wechseln kann)
         if(dom.themeIcon) dom.themeIcon.className = 'fa-solid fa-sun clickable';
     } else {
         document.body.setAttribute('data-theme', 'light');
-        // Icon = Mond (um zu dunkel zu wechseln)
+        // Icon = Mond (damit man zu Dunkel wechseln kann) - Passt zur index.html
         if(dom.themeIcon) dom.themeIcon.className = 'fa-solid fa-moon clickable';
     }
 }
@@ -54,12 +54,14 @@ initTheme();
 // --- GLOBALE EVENT LISTENER ---
 
 // Auth Buttons
-dom.loginForm.querySelector('#login-btn').addEventListener('click', handleLogin);
-dom.registerForm.querySelector('#register-btn').addEventListener('click', handleRegister);
-document.getElementById('logout-btn').addEventListener('click', handleLogout);
+if(dom.loginForm) dom.loginForm.querySelector('#login-btn').addEventListener('click', handleLogin);
+if(dom.registerForm) dom.registerForm.querySelector('#register-btn').addEventListener('click', handleRegister);
+if(document.getElementById('logout-btn')) document.getElementById('logout-btn').addEventListener('click', handleLogout);
 
 // Listener für das Eingabefeld (Haus-Code)
-document.getElementById('register-invite-code').addEventListener('input', checkInviteCode);
+if(document.getElementById('register-invite-code')) {
+    document.getElementById('register-invite-code').addEventListener('input', checkInviteCode);
+}
 
 // Navigation zwischen Login/Register
 document.getElementById('show-register').addEventListener('click', () => {
@@ -76,24 +78,31 @@ document.getElementById('back-to-login-btn').addEventListener('click', () => nav
 document.getElementById('back-to-login-from-verify-btn').addEventListener('click', () => navigateTo(dom.loginForm));
 
 // Header Controls
-dom.refreshBtn.addEventListener('click', () => window.location.reload());
+if(dom.refreshBtn) {
+    dom.refreshBtn.addEventListener('click', () => {
+        // Simpler Reload, funktioniert jetzt dank neuem sw.js (Network First)
+        window.location.reload();
+    });
+}
 
-// THEME TOGGLE (Verbessert: Mit Speichern)
-dom.themeIcon.addEventListener('click', () => {
-    const body = document.body;
-    // Prüfen was aktuell aktiv ist
-    const isCurrentlyDark = body.getAttribute('data-theme') === 'dark';
-    
-    // Umschalten
-    const newTheme = isCurrentlyDark ? 'light' : 'dark';
-    body.setAttribute('data-theme', newTheme);
-    
-    // Im Browser speichern
-    localStorage.setItem('theme', newTheme);
-    
-    // Icon anpassen
-    dom.themeIcon.className = isCurrentlyDark ? 'fa-solid fa-moon clickable' : 'fa-solid fa-sun clickable';
-});
+// THEME TOGGLE (Verbessert)
+if(dom.themeIcon) {
+    dom.themeIcon.addEventListener('click', () => {
+        const body = document.body;
+        // Prüfen was aktuell aktiv ist
+        const isCurrentlyDark = body.getAttribute('data-theme') === 'dark';
+        
+        // Umschalten
+        const newTheme = isCurrentlyDark ? 'light' : 'dark';
+        body.setAttribute('data-theme', newTheme);
+        
+        // Im Browser speichern
+        localStorage.setItem('theme', newTheme);
+        
+        // Icon anpassen: Wenn wir jetzt 'light' sind -> Mond Icon zeigen
+        dom.themeIcon.className = isCurrentlyDark ? 'fa-solid fa-moon clickable' : 'fa-solid fa-sun clickable';
+    });
+}
 
 // Admin Button
 const adminBtn = document.getElementById('admin-btn');
@@ -112,7 +121,7 @@ const inviteId = urlParams.get('invite');
 let isGuestSession = !!inviteId;
 
 if (isGuestSession) {
-    dom.loadingOverlay.style.display = 'flex';
+    if(dom.loadingOverlay) dom.loadingOverlay.style.display = 'flex';
 }
 
 onAuthStateChanged(auth, async (user) => {
@@ -145,7 +154,7 @@ onAuthStateChanged(auth, async (user) => {
         };
         
         setCurrentUser(guestUser);
-        dom.loadingOverlay.style.display = 'none';
+        if(dom.loadingOverlay) dom.loadingOverlay.style.display = 'none';
         
         dom.appContainer.style.display = 'block';
         if(dom.headerContainer) dom.headerContainer.style.display = 'none';
@@ -156,7 +165,7 @@ onAuthStateChanged(auth, async (user) => {
     }
 
     // FALL B: BEWOHNER (Normal)
-    dom.loadingOverlay.style.display = 'none';
+    if(dom.loadingOverlay) dom.loadingOverlay.style.display = 'none';
     dom.appContainer.style.display = 'block';
 
     if (user) {
