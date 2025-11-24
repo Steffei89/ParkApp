@@ -131,26 +131,21 @@ function stopCamera() {
     }
 }
 
-// BILDVERARBEITUNG 3.0 (High Contrast Binarization)
 function preprocessImage(canvas) {
     const ctx = canvas.getContext('2d');
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imageData.data;
     
-    // 1. Durchschnittshelligkeit ermitteln (für adaptiven Threshold)
     let totalBrightness = 0;
     for (let i = 0; i < data.length; i += 4) {
         totalBrightness += (data[i] + data[i+1] + data[i+2]) / 3;
     }
     const avgBrightness = totalBrightness / (data.length / 4);
-    
-    // Schwellenwert etwas unter dem Durchschnitt ansetzen (Text ist dunkel)
     const threshold = avgBrightness * 0.65; 
 
-    // 2. Binarisieren (Schwarz/Weiß)
     for (let i = 0; i < data.length; i += 4) {
         const gray = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
-        const val = gray < threshold ? 0 : 255; // Hartes Schwarz oder Weiß
+        const val = gray < threshold ? 0 : 255;
         data[i] = val;
         data[i + 1] = val;
         data[i + 2] = val;
@@ -158,91 +153,89 @@ function preprocessImage(canvas) {
     ctx.putImageData(imageData, 0, 0);
 }
 
-// INTELLIGENTE FEHLERKORREKTUR
 function fixCharacterConfusion(str, isNumberPart) {
     if (!str) return "";
     let res = str;
     if (isNumberPart) {
-        // Erwarte Zahlen -> Mache Buchstaben zu Zahlen
         res = res.replace(/O/g, '0').replace(/D/g, '0').replace(/I/g, '1').replace(/L/g, '1')
                  .replace(/Z/g, '7').replace(/S/g, '5').replace(/B/g, '8').replace(/G/g, '6');
     } else {
-        // Erwarte Buchstaben -> Mache Zahlen zu Buchstaben
         res = res.replace(/0/g, 'O').replace(/1/g, 'I').replace(/8/g, 'B').replace(/5/g, 'S').replace(/4/g, 'A');
     }
     return res;
 }
 
+// SMARTER PARSER V3 (Lazy Matching)
 function parseLicensePlate(text) {
-    // 1. Grob bereinigen: Nur Alphanumerik und Leerzeichen
-    const raw = text.toUpperCase().replace(/[^A-Z0-9\s]/g, '');
+    // 1. Alles bereinigen
+    const raw = text.toUpperCase().replace(/[^A-Z0-9]/g, ''); // Alles weg außer A-Z und 0-9
     
-    // 2. Splitten an Leerzeichen (Tesseract erkennt Abstände oft als Leerzeichen)
-    let parts = raw.trim().split(/\s+/);
+    // 2. Wir nutzen REGEX mit "Lazy Matching" (?) für die erste Gruppe
+    // Das zwingt die Regex, so WENIG Buchstaben wie möglich für den Ort zu nehmen,
+    // solange der Rest noch passt (1-2 Buchstaben + Zahlen).
+    // Das korrigiert "MAB123" zu "M-AB-123" statt "MA-B-123".
     
-    // Wenn wir weniger als 3 Teile haben, versuchen wir intelligent zu trennen
-    // Fallback: "BGLAB123" -> Wir suchen den Übergang von Buchstabe zu Zahl
-    if (parts.length < 2) {
-        const merged = parts.join('');
-        // Suche ersten Index einer Zahl
-        const firstNumIdx = merged.search(/\d/);
-        if (firstNumIdx > 1) { // Mindestens 2 Buchstaben am Anfang erwartet
-            const letters = merged.substring(0, firstNumIdx);
-            const numbers = merged.substring(firstNumIdx);
-            
-            // Wenn Buchstaben sehr lang (z.B. 5), müssen wir Stadt und Erkennung trennen
-            // Heuristik: Stadt ist meist 1-3 Zeichen.
-            let city = letters; 
-            let mid = "";
-            
-            if (letters.length > 3) {
-                // Rate mal: Erste 3 sind Stadt (z.B. "BGLAB" -> BGL-AB)
-                city = letters.substring(0, 3);
-                mid = letters.substring(3);
-            } else if (letters.length === 3) {
-                // Könnte "M-AB" sein oder "TOL-?" -> Schwierig.
-                // Wir lassen es als Block, wenn Tesseract kein Space gesehen hat.
-            }
-            
-            if(mid) parts = [city, mid, numbers];
-            else parts = [letters, numbers];
+    // Erklärung:
+    // ([A-ZÄÖÜ]{1,3}?)  -> Ort: 1-3 Buchstaben, aber so wenig wie möglich (Lazy)
+    // ([A-Z]{1,2})      -> Erkennung: 1-2 Buchstaben
+    // ([0-9]{1,4})      -> Zahl: 1-4 Ziffern
+    const regex = /^([A-ZÄÖÜ]{1,3}?)([A-Z]{1,2})([0-9]{1,4})$/;
+    
+    // Wir suchen die Zahlen am Ende, um den String von hinten aufzurollen
+    // Das ist sicherer als von vorne.
+    const match = raw.match(/([A-Z0-9]+?)([0-9]{1,4})$/);
+    
+    if (match) {
+        const lettersPart = match[1];
+        const numberPart = match[2];
+        
+        // Jetzt müssen wir den Buchstaben-Teil (z.B. "BGLAB" oder "MAB") trennen
+        // Strategie: Wenn 3 Buchstaben -> 1-2 (M-AB)
+        // Wenn 4 Buchstaben -> 2-2 (RO-AB)
+        // Wenn 5 Buchstaben -> 3-2 (BGL-AB)
+        
+        let city = "";
+        let mid = "";
+        
+        if (lettersPart.length === 5) {
+            city = lettersPart.substring(0, 3);
+            mid = lettersPart.substring(3);
+        } else if (lettersPart.length === 4) {
+            city = lettersPart.substring(0, 2);
+            mid = lettersPart.substring(2);
+        } else if (lettersPart.length === 3) {
+            city = lettersPart.substring(0, 1); // Bevorzuge große Städte (M, B, S)
+            mid = lettersPart.substring(1);
+        } else if (lettersPart.length === 2) {
+            city = lettersPart.substring(0, 1);
+            mid = lettersPart.substring(1);
+        } else {
+            return null; // Ungültige Länge
         }
-    }
-
-    // 3. Teile analysieren und korrigieren
-    // Teil 1 (Stadt): Immer Buchstaben
-    if(parts[0]) parts[0] = fixCharacterConfusion(parts[0], false);
-    
-    // Letzter Teil (Zahl): Immer Zahlen
-    const lastIdx = parts.length - 1;
-    if(parts[lastIdx]) parts[lastIdx] = fixCharacterConfusion(parts[lastIdx], true);
-    
-    // Mittlerer Teil (Erkennung): Buchstaben
-    if(parts.length === 3) parts[1] = fixCharacterConfusion(parts[1], false);
-
-    // 4. Zusammenbauen
-    // Mindestens: Stadt + Zahl
-    if (parts.length >= 2) {
-        return parts.join('-');
+        
+        // Korrekturen anwenden
+        city = fixCharacterConfusion(city, false);
+        mid = fixCharacterConfusion(mid, false);
+        const num = fixCharacterConfusion(numberPart, true);
+        
+        return `${city}-${mid}-${num}`;
     }
     return null;
 }
 
 async function takePictureAndScan() {
     if (!cameraStream) return;
-    dom.scanStatusText.textContent = "Verarbeite (Smart AI)...";
+    dom.scanStatusText.textContent = "Analysiere (Präzision)...";
     dom.snapBtn.disabled = true;
 
     const video = dom.cameraVideo;
     const canvas = dom.cameraCanvas;
     
-    // CROP 75% Breite / 15% Höhe
-    const sWidth = video.videoWidth * 0.75;
-    const sHeight = video.videoHeight * 0.15;
+    const sWidth = video.videoWidth * 0.70;
+    const sHeight = video.videoHeight * 0.12; 
     const sx = (video.videoWidth - sWidth) / 2;
     const sy = (video.videoHeight * 0.45) - (sHeight / 2);
 
-    // UPSCALING 2x für Schärfe
     canvas.width = sWidth * 2;
     canvas.height = sHeight * 2;
     const ctx = canvas.getContext('2d');
@@ -253,10 +246,10 @@ async function takePictureAndScan() {
     try {
         const { createWorker } = Tesseract;
         const worker = await createWorker('deu');
-        // PSM 7 = Single Line ist essentiell!
+        
         await worker.setParameters({ 
             tessedit_pageseg_mode: '7',
-            tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ' 
+            tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÜ0123456789' // Keine Sonderzeichen erlaubt!
         });
         
         const { data: { text } } = await worker.recognize(canvas);
@@ -264,11 +257,11 @@ async function takePictureAndScan() {
 
         const result = parseLicensePlate(text);
 
-        if (result && result.length >= 4) {
+        if (result) {
             dom.bookingPlate.value = result;
             stopCamera();
         } else {
-             dom.scanStatusText.textContent = `Nicht erkannt (${text.trim()}). Versuch's nochmal!`;
+             dom.scanStatusText.textContent = `Nicht erkannt. (${text.trim()})`;
         }
     } catch (e) {
         console.error(e);
@@ -286,7 +279,7 @@ function setupHoldAction(button, action) {
 }
 
 function updateDateTabsUI(activeType) {
-    dom.dateTabs.forEach(t => t.classList.remove('selected'));
+    document.querySelectorAll('.date-tab').forEach(t => t.classList.remove('selected'));
     if(activeType === 'today') document.getElementById('date-tab-today').classList.add('selected');
     if(activeType === 'tomorrow') document.getElementById('date-tab-tomorrow').classList.add('selected');
     if(activeType === 'picker') document.getElementById('date-tab-picker').classList.add('selected');
