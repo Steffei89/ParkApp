@@ -17,17 +17,14 @@ export async function createBooking(start, end, spot, plate, msgId = 'booking-er
     }
 
     // 1. Verfügbarkeit prüfen
-    // Wir laden Buchungen, die NACH dem Startzeitpunkt enden (potenzielle Überschneidung)
     const q = query(getBookingsCollectionRef(), where("endZeit", ">", start)); 
     const snap = await getDocs(q);
     
     const bookings = [];
     snap.forEach(d => bookings.push(d.data()));
 
-    // Filtern nach echtem Overlap
     const overlaps = bookings.filter(b => isOverlapping(start, end, b.startZeit, b.endZeit));
 
-    // Spot-Logik (Automatische Zuweisung)
     if (spot === 'any') {
         const p1Busy = overlaps.some(b => b.parkplatzId === 'P1');
         const p2Busy = overlaps.some(b => b.parkplatzId === 'P2');
@@ -36,10 +33,8 @@ export async function createBooking(start, end, spot, plate, msgId = 'booking-er
             showMessage(msgId, "Kein Parkplatz frei in diesem Zeitraum.", 'error');
             return { success: false };
         }
-        // Nimm P1 wenn frei, sonst P2
         spot = !p1Busy ? 'P1' : 'P2';
     } else {
-        // Expliziter Spot gewünscht
         if (overlaps.some(b => b.parkplatzId === spot)) {
             showMessage(msgId, `${spot} ist in diesem Zeitraum belegt.`, 'error');
             return { success: false };
@@ -60,8 +55,6 @@ export async function createBooking(start, end, spot, plate, msgId = 'booking-er
         });
         
         showMessage(msgId, `Gebucht: ${spot}`, 'success');
-        
-        // WICHTIG: Wir geben jetzt Erfolgsdaten zurück (Spot & ID)
         return { success: true, spot: spot, bookingId: docRef.id };
 
     } catch (e) {
@@ -109,6 +102,28 @@ export function subscribeToMyBookings(callback) {
         snap.forEach(d => list.push({ id: d.id, ...d.data() }));
         list.sort((a,b) => new Date(a.startZeit) - new Date(b.startZeit));
         callback(list);
+    });
+}
+
+// --- NEU: Alle Buchungen für einen Tag laden (für die Übersicht) ---
+export function subscribeToReservationsForDate(dateStr, callback) {
+    // Wir suchen alles, was NACH Beginn des Tages aufhört.
+    // Das fängt auch Buchungen ab, die gestern gestartet sind und heute noch laufen.
+    const startOfDay = new Date(dateStr + "T00:00:00").toISOString();
+    const endOfDay = new Date(dateStr + "T23:59:59").toISOString();
+
+    const q = query(getBookingsCollectionRef(), where("endZeit", ">", startOfDay));
+
+    return onSnapshot(q, (snap) => {
+        const bookings = [];
+        snap.forEach(d => {
+            const b = d.data();
+            // Client-Filter: Darf nicht erst morgen anfangen
+            if (b.startZeit < endOfDay) {
+                bookings.push({ id: d.id, ...b });
+            }
+        });
+        callback(bookings);
     });
 }
 

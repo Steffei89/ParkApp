@@ -1,4 +1,4 @@
-const CACHE_NAME = 'parkapp-v2'; // Version hochgezählt
+const CACHE_NAME = 'parkapp-v3'; // Version
 const ASSETS = [
   '/',
   '/index.html',
@@ -26,19 +26,27 @@ self.addEventListener('install', (event) => {
   );
 });
 
-// KORRIGIERT: Network-First Strategie für zuverlässiges "Neuladen"
 self.addEventListener('fetch', (event) => {
+  // WICHTIG: Wir cachen nur GET-Requests (Laden von Seiten/Bildern).
+  // Datenbank-Schreibvorgänge (POST/PUT/DELETE) ignoriert der Service Worker.
+  if (event.request.method !== 'GET') {
+      return; 
+  }
+
   event.respondWith(
     fetch(event.request)
       .then((networkResponse) => {
-        // Wenn Netzwerk erfolgreich: Cache aktualisieren
-        return caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, networkResponse.clone());
-            return networkResponse;
+        // Wir müssen die Antwort klonen, da sie nur einmal gelesen werden kann
+        const responseToCache = networkResponse.clone();
+        
+        caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, responseToCache);
         });
+        
+        return networkResponse;
       })
       .catch(() => {
-        // Wenn Netzwerk fehlschlägt (Offline): Cache nutzen
+        // Wenn Offline: Versuche es aus dem Cache
         return caches.match(event.request);
       })
   );

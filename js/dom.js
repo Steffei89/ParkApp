@@ -2,10 +2,14 @@
 export const loadingOverlay = document.getElementById("loadingOverlay");
 export const appContainer = document.getElementById("app");
 
-// Header
-export const headerContainer = document.querySelector(".header-container");
+// NEUER Header (Wrapper) & Status
+export const appHeader = document.getElementById("app-header");
+export const parkingStatusWidget = document.getElementById("parking-status-widget");
 export const refreshBtn = document.getElementById("refresh-app-btn");
 export const themeIcon = document.getElementById("theme-icon");
+export const logoutBtn = document.getElementById("logout-btn");
+
+// Status Elemente (Pills)
 export const statusP1 = document.getElementById("status-p1");
 export const statusP2 = document.getElementById("status-p2");
 
@@ -17,7 +21,7 @@ export const resetPasswordForm = document.getElementById("resetPasswordForm");
 
 // Main Menu
 export const mainMenu = document.getElementById("mainMenu");
-export const userInfo = document.getElementById("userInfo");
+// userInfo gibt es als Block nicht mehr so wie früher, wir steuern jetzt appHeader an
 export const myBookingsList = document.getElementById("my-bookings-list");
 
 // Sections
