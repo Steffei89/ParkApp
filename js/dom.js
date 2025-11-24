@@ -34,6 +34,7 @@ export const adminSection = document.getElementById("adminSection");
 export const guestWelcomeTitle = document.getElementById("guest-welcome-title");
 export const guestHostName = document.getElementById("guest-host-name");
 export const guestPlateInput = document.getElementById("guest-plate-input");
+export const guestScanBtn = document.getElementById("guest-scan-btn"); 
 export const guestStatusP1 = document.getElementById("guest-status-p1");
 export const guestStatusP2 = document.getElementById("guest-status-p2");
 export const guestParkNowBtn = document.getElementById("guest-park-now-btn");
@@ -44,7 +45,7 @@ export const ticketSpotId = document.getElementById("ticket-spot-id");
 export const ticketStartTime = document.getElementById("ticket-start-time");
 export const guestCheckoutBtn = document.getElementById("guest-checkout-btn");
 
-// Booking Elements
+// Booking
 export const bookingSpot = document.getElementById("booking-spot");
 export const bookingDate = document.getElementById("booking-date"); 
 export const bookingStart = document.getElementById("booking-start"); 
@@ -64,7 +65,7 @@ export const displayStartTime = document.getElementById("display-start-time");
 export const durationChips = document.querySelectorAll('.chip-btn');
 export const displayEndTime = document.getElementById("display-end-time");
 
-// NEU: KAMERA ELEMENTE
+// Kamera
 export const scanPlateBtn = document.getElementById("scan-plate-btn");
 export const cameraOverlay = document.getElementById("camera-overlay");
 export const cameraVideo = document.getElementById("camera-video");
@@ -73,7 +74,7 @@ export const snapBtn = document.getElementById("snap-btn");
 export const closeCameraBtn = document.getElementById("close-camera-btn");
 export const scanStatusText = document.getElementById("scan-status-text");
 
-// Overview Elements
+// Overview
 export const overviewDatePicker = document.getElementById("overview-date-picker");
 export const overviewDateLabel = document.getElementById("overview-date-label"); 
 export const prevDayBtn = document.getElementById("prev-day-btn"); 
@@ -86,3 +87,19 @@ export const bookingListDay = document.getElementById("booking-list-day");
 // Profile
 export const profilePlate = document.getElementById("profile-plate");
 export const saveProfileBtn = document.getElementById("save-profile-btn");
+
+// Admin
+export const statUsers = document.getElementById("stat-users");
+export const statBookings = document.getElementById("stat-bookings");
+export const statTopSpot = document.getElementById("stat-top-spot");
+export const adminTopList = document.getElementById("admin-top-list");
+export const adminTabUsers = document.getElementById("admin-tab-users");
+export const adminTabBookings = document.getElementById("admin-tab-bookings");
+export const adminViewUsers = document.getElementById("admin-view-users");
+export const adminViewBookings = document.getElementById("admin-view-bookings");
+export const adminUserList = document.getElementById("admin-user-list");
+export const adminBookingList = document.getElementById("admin-booking-list");
+
+// --- INVITE SPLIT BUTTONS (NEU) ---
+export const inviteWhatsappBtn = document.getElementById("invite-whatsapp-btn");
+export const inviteCopyBtn = document.getElementById("invite-copy-btn");

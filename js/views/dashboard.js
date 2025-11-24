@@ -11,13 +11,15 @@ let durationMinutes = 120;
 let cameraStream = null;
 
 export function initDashboardView() {
-    // --- NAVIGATION & BUTTONS ---
     document.getElementById('book-btn').addEventListener('click', () => {
         resetBookingForm();
         navigateTo(dom.bookingSection);
     });
 
-    document.getElementById('invite-guest-btn').addEventListener('click', createGuestLink);
+    // --- NEU: SPLIT BUTTON LISTENER ---
+    if(dom.inviteWhatsappBtn) dom.inviteWhatsappBtn.addEventListener('click', () => createGuestLink('whatsapp'));
+    if(dom.inviteCopyBtn) dom.inviteCopyBtn.addEventListener('click', () => createGuestLink('copy'));
+
     document.getElementById('overview-btn').addEventListener('click', () => { initOverviewView(); navigateTo(dom.overviewSection); });
     document.getElementById('profile-btn').addEventListener('click', () => navigateTo(dom.profileSection));
     
@@ -25,17 +27,14 @@ export function initDashboardView() {
     document.getElementById('back-to-menu-btn-overview').addEventListener('click', () => navigateTo(dom.mainMenu));
     document.getElementById('back-to-menu-btn-profile').addEventListener('click', () => navigateTo(dom.mainMenu));
 
-    // UI Setup
     setupSmartBookingUI();
     setupCameraUI();
 }
 
-// --- RESET FUNKTION (Standardwerte) ---
 function resetBookingForm() {
     selectedDate = new Date();
     updateDateTabsUI('today');
     selectedTime = new Date();
-    // Runde auf nächste 5 Minuten
     const coeff = 1000 * 60 * 5;
     selectedTime = new Date(Math.ceil(selectedTime.getTime() / coeff) * coeff);
     durationMinutes = 120;
@@ -43,9 +42,7 @@ function resetBookingForm() {
     updateTimeDisplay();
 }
 
-// --- SMART BOOKING UI LOGIK ---
 function setupSmartBookingUI() {
-    // Parkplatz Karten
     dom.spotCards.forEach(card => {
         card.addEventListener('click', () => {
             dom.spotCards.forEach(c => c.classList.remove('selected'));
@@ -54,7 +51,6 @@ function setupSmartBookingUI() {
         });
     });
 
-    // Datum Tabs
     const tabToday = document.getElementById('date-tab-today');
     const tabTomorrow = document.getElementById('date-tab-tomorrow');
     const tabPicker = document.getElementById('date-tab-picker');
@@ -65,13 +61,11 @@ function setupSmartBookingUI() {
     tabPicker.onclick = () => picker.showPicker();
     picker.onchange = () => { if(picker.value) { selectedDate = new Date(picker.value); updateDateTabsUI('picker'); updateTimeDisplay(); } };
 
-    // Zeitsteuerung
     dom.btnSetNow.onclick = () => { selectedTime = new Date(); updateTimeDisplay(); };
     const changeTime = (minutes) => { selectedTime.setMinutes(selectedTime.getMinutes() + minutes); updateTimeDisplay(); };
     setupHoldAction(dom.timeMinus, () => changeTime(-15));
     setupHoldAction(dom.timePlus, () => changeTime(15));
 
-    // Dauer Chips
     dom.durationChips.forEach(chip => {
         chip.addEventListener('click', () => {
             durationMinutes = parseInt(chip.dataset.min);
@@ -80,13 +74,11 @@ function setupSmartBookingUI() {
         });
     });
 
-    // Buchen Button
     dom.bookSubmitBtn.addEventListener('click', async () => {
         const finalStart = new Date(selectedDate);
         finalStart.setHours(selectedTime.getHours(), selectedTime.getMinutes(), 0, 0);
         const finalEnd = new Date(finalStart.getTime() + durationMinutes * 60000);
         
-        // Validierung: Endzeit muss nach Startzeit liegen
         if (finalEnd <= finalStart) {
              showMessage('booking-error', 'Endzeit ungültig.');
              return;
@@ -107,7 +99,6 @@ function setupSmartBookingUI() {
     });
 }
 
-// --- KAMERA & OCR (VERBESSERT) ---
 function setupCameraUI() {
     dom.scanPlateBtn.addEventListener('click', startCamera);
     dom.closeCameraBtn.addEventListener('click', stopCamera);
@@ -118,12 +109,11 @@ async function startCamera() {
     try {
         dom.cameraOverlay.classList.remove('hidden');
         dom.scanStatusText.textContent = "Bereit...";
-        // environment = Rückkamera
         cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
         dom.cameraVideo.srcObject = cameraStream;
     } catch (e) {
         console.error(e);
-        alert("Kamera konnte nicht gestartet werden.");
+        alert("Kamera Fehler.");
         stopCamera();
     }
 }
@@ -136,30 +126,14 @@ function stopCamera() {
     }
 }
 
-// HILFSFUNKTION: Bild verbessern (Schwarze Schrift verstärken)
 function preprocessImage(canvas) {
     const ctx = canvas.getContext('2d');
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imageData.data;
-    
-    // Wir laufen durch jeden Pixel
     for (let i = 0; i < data.length; i += 4) {
-        const r = data[i];
-        const g = data[i + 1];
-        const b = data[i + 2];
-        
-        // 1. Graustufe berechnen
-        const gray = (r + g + b) / 3;
-        
-        // 2. Harter Kontrast (Thresholding)
-        // Alles was dunkel ist (< 100) wird komplett SCHWARZ (Text)
-        // Alles was heller ist (> 100) wird komplett WEISS (Hintergrund)
-        // Das filtert Farben und leichte Schatten raus.
+        const gray = (data[i] + data[i + 1] + data[i + 2]) / 3;
         const val = gray < 110 ? 0 : 255;
-        
-        data[i] = val;     // R
-        data[i + 1] = val; // G
-        data[i + 2] = val; // B
+        data[i] = data[i + 1] = data[i + 2] = val;
     }
     ctx.putImageData(imageData, 0, 0);
 }
@@ -171,75 +145,47 @@ async function takePictureAndScan() {
 
     const video = dom.cameraVideo;
     const canvas = dom.cameraCanvas;
-    
-    // CROP: Wir schneiden nur den relevanten Streifen aus (wie im UI angezeigt)
-    // Breite: 85% des Bildes, Höhe: ca 20-25% des Bildes in der Mitte
     const sWidth = video.videoWidth * 0.85;
     const sHeight = video.videoHeight * 0.20;
     const sx = (video.videoWidth - sWidth) / 2;
-    const sy = (video.videoHeight * 0.45) - (sHeight / 2); // Leicht oberhalb der Mitte
+    const sy = (video.videoHeight * 0.45) - (sHeight / 2);
 
     canvas.width = sWidth;
     canvas.height = sHeight;
     const ctx = canvas.getContext('2d');
-    
-    // Bildausschnitt zeichnen
     ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, sWidth, sHeight);
-    
-    // VERBESSERUNG: Bild filtern (Nur Schwarz/Weiß)
     preprocessImage(canvas);
 
     try {
         const { createWorker } = Tesseract;
         const worker = await createWorker('deu'); 
-        
-        // WHITELIST: Wir erlauben Großbuchstaben, Zahlen, Bindestrich UND Leerzeichen
-        // Leerzeichen sind wichtig, um die Trennung zu erkennen
-        await worker.setParameters({
-          tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÜ0123456789- '
-        });
-        
+        await worker.setParameters({ tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÜ0123456789- ' });
         const { data: { text } } = await worker.recognize(canvas);
         await worker.terminate();
 
-        // BEREINIGUNG
-        // 1. Zeilenumbrüche weg
-        // 2. Alles was kein Buchstabe/Zahl/Leerzeichen/- ist weg
         let clean = text.replace(/[^A-Z0-9- ]/g, '').trim();
-        
-        // 3. Mehrfache Leerzeichen zu einem Bindestrich machen
-        // Aus "BGL  ML 19" wird "BGL-ML-19"
         clean = clean.replace(/\s+/g, '-');
-        
-        // 4. Falls am Anfang oder Ende noch Striche sind, weg damit
         clean = clean.replace(/^-+|-+$/g, '');
 
-        // Validierung: Kennzeichen sind meist zwischen 3 und 9 Zeichen lang
         if (clean.length >= 3 && clean.length <= 10) {
             dom.bookingPlate.value = clean;
             stopCamera();
         } else {
-             alert(`Erkannt: "${clean}"\nDas sieht nicht wie ein Kennzeichen aus. Bitte näher ran oder Winkel ändern.`);
              dom.scanStatusText.textContent = "Bitte näher ran...";
         }
     } catch (e) {
         console.error(e);
-        alert("Fehler bei der Bildverarbeitung.");
+        alert("Fehler.");
     }
     dom.snapBtn.disabled = false;
 }
-
-// --- UI HELPER (Hold Button, Tabs etc.) ---
 
 function setupHoldAction(button, action) {
     let interval; let timeout;
     const start = () => { action(); timeout = setTimeout(() => { interval = setInterval(() => { action(); }, 100); }, 400); };
     const stop = () => { clearTimeout(timeout); clearInterval(interval); };
-    button.addEventListener('mousedown', start);
-    button.addEventListener('touchstart', (e) => { e.preventDefault(); start(); });
-    button.addEventListener('mouseup', stop);
-    button.addEventListener('mouseleave', stop);
-    button.addEventListener('touchend', stop);
+    button.addEventListener('mousedown', start); button.addEventListener('touchstart', (e) => { e.preventDefault(); start(); });
+    button.addEventListener('mouseup', stop); button.addEventListener('mouseleave', stop); button.addEventListener('touchend', stop);
 }
 
 function updateDateTabsUI(activeType) {
@@ -267,8 +213,6 @@ function updateTimeDisplay() {
     const endMM = String(combinedEnd.getMinutes()).padStart(2, '0');
     dom.displayEndTime.textContent = `${endHH}:${endMM}`;
 }
-
-// --- RESTLICHE FUNKTIONEN (unverändert) ---
 
 export function loadMyBookings() {
     const unsub = subscribeToMyBookings((bookings) => {

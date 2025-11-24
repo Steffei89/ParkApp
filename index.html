@@ -60,14 +60,11 @@
     <div class="card-header-icon"><i class="fa-solid fa-right-to-bracket"></i></div>
     <h2>Anmelden</h2>
     <div id="login-error" class="message-box error" style="display:none;"></div>
-    
     <div class="input-group">
       <input type="email" id="login-identifier" placeholder="E-Mail Adresse" required>
       <input type="password" id="login-password" placeholder="Passwort" required>
     </div>
-    
     <button id="login-btn" class="button-primary">Einloggen</button>
-    
     <div class="auth-links">
         <p>Neu hier? <span id="show-register" class="link-text">Registrieren</span></p>
         <p><span id="show-reset-password" class="link-text small">Passwort vergessen?</span></p>
@@ -78,13 +75,11 @@
     <div class="card-header-icon"><i class="fa-solid fa-user-plus"></i></div>
     <h2>Registrierung</h2>
     <div id="register-error" class="message-box error" style="display:none;"></div>
-    
     <div class="input-group">
       <input type="email" id="register-email" placeholder="E-Mail Adresse" required>
       <input type="password" id="register-password" minlength="6" placeholder="Passwort" required>
       <input type="password" id="register-password-confirm" minlength="6" placeholder="Passwort bestätigen" required>
       <input type="text" id="register-invite-code" placeholder="Haus-Code (vom Admin)" required>
-      
       <div id="partei-selection-wrapper" class="hidden fade-in"> 
         <select id="register-partei" required>
           <option value="" disabled selected>Wohnung wählen</option>
@@ -122,18 +117,22 @@
     
     <div class="action-grid">
         <button id="book-btn" class="big-action-card primary">
-            <i class="fa-solid fa-calendar-plus"></i>
-            <span>Reservieren</span>
+            <i class="fa-solid fa-calendar-plus"></i><span>Reservieren</span>
         </button>
         <button id="overview-btn" class="big-action-card secondary">
-            <i class="fa-solid fa-list-check"></i>
-            <span>Übersicht</span>
+            <i class="fa-solid fa-list-check"></i><span>Übersicht</span>
         </button>
     </div>
 
-    <button id="invite-guest-btn" class="button-outline w-100 mt-2">
-        <i class="fa-brands fa-whatsapp"></i> Gast-Link erstellen
-    </button>
+    <div class="invite-split-wrapper mt-2">
+        <button id="invite-whatsapp-btn" class="button-whatsapp flex-grow">
+            <i class="fa-brands fa-whatsapp" style="font-size:1.2rem;"></i> 
+            <span>Gast einladen</span>
+        </button>
+        <button id="invite-copy-btn" class="button-secondary icon-only-btn">
+            <i class="fa-regular fa-copy"></i>
+        </button>
+    </div>
     
     <div class="menu-list mt-3">
         <div id="admin-btn" class="menu-item" style="display:none;">
@@ -156,46 +155,31 @@
     <h2 id="guest-welcome-title">Willkommen!</h2>
     <p class="text-center small-text">Gast bei <strong id="guest-host-name">...</strong></p>
     <div id="guest-message" class="message-box" style="display:none;"></div>
-
     <div id="guest-action-container">
         <label>Dein Kennzeichen:</label>
-        <input type="text" id="guest-plate-input" placeholder="M-XY 123" class="input-large text-center uppercase">
-        
+        <div class="form-group input-icon-wrapper mb-3">
+            <input type="text" id="guest-plate-input" placeholder="M-XY 123" class="input-large text-center uppercase" style="padding-right: 40px;">
+            <i id="guest-scan-btn" class="fa-solid fa-camera input-icon-right clickable" title="Scannen"></i>
+        </div>
         <div class="status-monitor-large">
             <div class="status-card" id="guest-status-p1">
-                <span class="badge">P1</span>
-                <span class="status-text">Prüfe...</span>
+                <span class="spot-id">P1</span><i class="status-icon fa-solid fa-spinner"></i><span class="status-text">Lade...</span>
             </div>
             <div class="status-card" id="guest-status-p2">
-                <span class="badge">P2</span>
-                <span class="status-text">Prüfe...</span>
+                <span class="spot-id">P2</span><i class="status-icon fa-solid fa-spinner"></i><span class="status-text">Lade...</span>
             </div>
         </div>
-
-        <button id="guest-park-now-btn" class="button-success btn-large pulse-animation">
-            <i class="fa-solid fa-car-side"></i> JETZT PARKEN
-        </button>
-        
-        <button id="guest-reserve-btn" class="button-secondary mt-2">
-            <i class="fa-regular fa-calendar"></i> Für später reservieren
-        </button>
+        <button id="guest-park-now-btn" class="button-success btn-large pulse-animation"><i class="fa-solid fa-car-side"></i> JETZT PARKEN</button>
+        <button id="guest-reserve-btn" class="button-secondary mt-2"><i class="fa-regular fa-calendar"></i> Für später reservieren</button>
     </div>
-
     <div id="guest-active-ticket" style="display:none; text-align:center;">
-        <div class="ticket-visual">
-            <span class="ticket-label">DEIN PARKPLATZ</span>
-            <h1 id="ticket-spot-id">P1</h1>
-            <p>Seit <span id="ticket-start-time">--:--</span> Uhr</p>
-        </div>
-        <button id="guest-checkout-btn" class="button-danger mt-3">
-            <i class="fa-solid fa-person-walking-arrow-right"></i> Parkplatz freigeben
-        </button>
+        <div class="ticket-visual"><span class="ticket-label">DEIN PARKPLATZ</span><h1 id="ticket-spot-id">P1</h1><p>Seit <span id="ticket-start-time">--:--</span> Uhr</p></div>
+        <button id="guest-checkout-btn" class="button-danger mt-3"><i class="fa-solid fa-person-walking-arrow-right"></i> Parkplatz freigeben</button>
     </div>
   </div>
 
   <div id="bookingSection" class="card" style="display:none;">
     <button id="back-to-menu-btn-booking" class="back-button"><i class="fa-solid fa-chevron-left"></i> Zurück</button>
-    
     <label class="section-label">1. WO?</label>
     <div class="spot-selector-container mb-3">
         <input type="hidden" id="booking-spot" value="any">
@@ -203,7 +187,6 @@
         <div class="spot-card" data-value="P1"><i class="fa-solid fa-square-parking"></i><span>P1</span></div>
         <div class="spot-card" data-value="P2"><i class="fa-solid fa-square-parking"></i><span>P2</span></div>
     </div>
-    
     <label class="section-label">2. WANN?</label>
     <div class="date-tabs-wrapper mb-3">
         <input type="hidden" id="booking-date">
@@ -212,7 +195,6 @@
         <div class="date-tab icon-tab" id="date-tab-picker"><i class="fa-regular fa-calendar"></i></div>
         <input type="date" id="hidden-date-picker" style="position:absolute; visibility:hidden; width:1px;">
     </div>
-
     <label class="section-label">3. START?</label>
     <div class="time-control-container mb-3">
         <input type="hidden" id="booking-start">
@@ -223,7 +205,6 @@
             <button class="step-btn" id="time-plus"><i class="fa-solid fa-plus"></i></button>
         </div>
     </div>
-    
     <label class="section-label">4. WIE LANGE?</label>
     <div class="duration-chips mb-3">
         <input type="hidden" id="booking-duration" value="120">
@@ -233,20 +214,15 @@
         <button class="chip-btn" data-min="480">8h</button>
         <button class="chip-btn" data-min="1440">24h</button>
     </div>
-
     <div class="summary-box">
         <i class="fa-regular fa-clock"></i>
         <span>Bis <strong id="display-end-time">--:--</strong> Uhr reserviert</span>
     </div>
-
     <div class="form-group mt-2 input-icon-wrapper">
         <input type="text" id="booking-plate" placeholder="Kennzeichen (Optional)">
         <i id="scan-plate-btn" class="fa-solid fa-camera input-icon-right clickable" title="Scannen"></i>
     </div>
-
-    <button id="book-submit-btn" class="button-primary btn-large pulse-animation mt-2">
-        FERTIG - BUCHEN
-    </button>
+    <button id="book-submit-btn" class="button-primary btn-large pulse-animation mt-2">FERTIG - BUCHEN</button>
   </div>
 
   <div id="overviewSection" class="card" style="display:none;">
@@ -261,17 +237,9 @@
         <button id="next-day-btn" class="nav-arrow-btn"><i class="fa-solid fa-chevron-right"></i></button>
     </div>
     <div id="day-schedule-container" class="timeline-container">
-        <div class="timeline-header">
-            <span>08</span><span>12</span><span>16</span><span>20</span>
-        </div>
-        <div class="spot-track" id="track-p1">
-            <span class="track-label">P1</span>
-            <div class="track-lanes" id="lanes-p1"></div>
-        </div>
-        <div class="spot-track" id="track-p2">
-            <span class="track-label">P2</span>
-            <div class="track-lanes" id="lanes-p2"></div>
-        </div>
+        <div class="timeline-header"><span>08</span><span>12</span><span>16</span><span>20</span></div>
+        <div class="spot-track" id="track-p1"><span class="track-label">P1</span><div class="track-lanes" id="lanes-p1"></div></div>
+        <div class="spot-track" id="track-p2"><span class="track-label">P2</span><div class="track-lanes" id="lanes-p2"></div></div>
     </div>
     <div id="booking-list-day" class="mt-3"></div>
   </div>
@@ -297,20 +265,25 @@
 
   <div id="adminSection" class="card" style="display:none;">
     <button id="back-to-menu-btn-admin" class="back-button"><i class="fa-solid fa-chevron-left"></i> Zurück</button>
-    <h2>Verwaltung</h2>
-    <details class="admin-group"><summary>Benutzer Liste</summary><div class="admin-content" id="admin-user-list">Lade...</div></details>
-    <details class="admin-group"><summary>Alle Buchungen</summary><div class="admin-content" id="admin-booking-list">Lade...</div></details>
+    <h2>Admin Konsole</h2>
+    <div class="stats-container mb-3">
+        <div class="stat-card"><span class="stat-value" id="stat-users">--</span><span class="stat-label">Nutzer</span></div>
+        <div class="stat-card"><span class="stat-value" id="stat-bookings">--</span><span class="stat-label">Aktive</span></div>
+        <div class="stat-card"><span class="stat-value" id="stat-top-spot">--</span><span class="stat-label">Beliebt</span></div>
+    </div>
+    <div class="mb-3"><div class="section-label">Top Parker 🏆</div><div id="admin-top-list" class="top-list-container">Lade...</div></div>
+    <div class="admin-tab-nav mb-3">
+        <button class="admin-tab-btn active" id="admin-tab-users">Benutzer</button>
+        <button class="admin-tab-btn" id="admin-tab-bookings">Buchungen</button>
+    </div>
+    <div id="admin-view-users"><div class="admin-content-list" id="admin-user-list">Lade...</div></div>
+    <div id="admin-view-bookings" style="display:none;"><div class="admin-content-list" id="admin-booking-list">Lade...</div></div>
   </div>
 
   <div id="camera-overlay" class="hidden">
       <video id="camera-video" autoplay playsinline></video>
-      
-      <div class="scan-region-highlight">
-          <div class="scan-text">Kennzeichen hier reinhalten</div>
-      </div>
-      
+      <div class="scan-region-highlight"><div class="scan-text">Kennzeichen hier reinhalten</div></div>
       <canvas id="camera-canvas" style="display:none;"></canvas>
-      
       <div class="camera-controls">
           <p id="scan-status-text">Bereit zum Scannen...</p>
           <button id="snap-btn" class="button-primary btn-large" style="width:80px; height:80px; border-radius:50%; border:4px solid white;"><i class="fa-solid fa-camera"></i></button>
