@@ -16,7 +16,6 @@ export function initDashboardView() {
         navigateTo(dom.bookingSection);
     });
 
-    // --- NEU: SPLIT BUTTON LISTENER ---
     if(dom.inviteWhatsappBtn) dom.inviteWhatsappBtn.addEventListener('click', () => createGuestLink('whatsapp'));
     if(dom.inviteCopyBtn) dom.inviteCopyBtn.addEventListener('click', () => createGuestLink('copy'));
 
@@ -109,7 +108,14 @@ async function startCamera() {
     try {
         dom.cameraOverlay.classList.remove('hidden');
         dom.scanStatusText.textContent = "Bereit...";
-        cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        cameraStream = await navigator.mediaDevices.getUserMedia({ 
+            video: { 
+                facingMode: 'environment',
+                // Versuche hohe Auflösung für besseres OCR
+                width: { ideal: 1920 },
+                height: { ideal: 1080 } 
+            } 
+        });
         dom.cameraVideo.srcObject = cameraStream;
     } catch (e) {
         console.error(e);
@@ -126,13 +132,16 @@ function stopCamera() {
     }
 }
 
+// BILDVERARBEITUNG (Verbesserter Kontrast)
 function preprocessImage(canvas) {
     const ctx = canvas.getContext('2d');
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imageData.data;
     for (let i = 0; i < data.length; i += 4) {
         const gray = (data[i] + data[i + 1] + data[i + 2]) / 3;
-        const val = gray < 110 ? 0 : 255;
+        // Stärkerer Filter: Alles was nicht sehr dunkel ist, wird weiß.
+        // Threshold gesenkt auf 100 (war 110), um Schatten rauszufiltern.
+        const val = gray < 100 ? 0 : 255;
         data[i] = data[i + 1] = data[i + 2] = val;
     }
     ctx.putImageData(imageData, 0, 0);
@@ -145,8 +154,12 @@ async function takePictureAndScan() {
 
     const video = dom.cameraVideo;
     const canvas = dom.cameraCanvas;
-    const sWidth = video.videoWidth * 0.85;
-    const sHeight = video.videoHeight * 0.20;
+    
+    // TUNNELBLICK CROP (FEINJUSTIERUNG)
+    // Breite: 70% (war 85%) -> Blendet Ränder aus
+    // Höhe: 10% (war 20%) -> Blendet Text darüber/darunter aus
+    const sWidth = video.videoWidth * 0.70;
+    const sHeight = video.videoHeight * 0.10;
     const sx = (video.videoWidth - sWidth) / 2;
     const sy = (video.videoHeight * 0.45) - (sHeight / 2);
 
@@ -159,19 +172,28 @@ async function takePictureAndScan() {
     try {
         const { createWorker } = Tesseract;
         const worker = await createWorker('deu'); 
+        // Whitelist
         await worker.setParameters({ tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÜ0123456789- ' });
+        
         const { data: { text } } = await worker.recognize(canvas);
         await worker.terminate();
 
+        // BEREINIGUNG
         let clean = text.replace(/[^A-Z0-9- ]/g, '').trim();
-        clean = clean.replace(/\s+/g, '-');
-        clean = clean.replace(/^-+|-+$/g, '');
+        clean = clean.replace(/\s+/g, '-'); // Leerzeichen zu Bindestrichen
+        clean = clean.replace(/^-+|-+$/g, ''); // Striche am Rand weg
 
-        if (clean.length >= 3 && clean.length <= 10) {
+        // INTELLIGENZ-FILTER
+        // 1. Länge 3-10 Zeichen
+        // 2. MUSS eine Zahl enthalten (filtert reine Stadtnamen/Wörter raus)
+        const hasNumber = /[0-9]/.test(clean);
+
+        if (clean.length >= 3 && clean.length <= 10 && hasNumber) {
             dom.bookingPlate.value = clean;
             stopCamera();
         } else {
-             dom.scanStatusText.textContent = "Bitte näher ran...";
+             dom.scanStatusText.textContent = "Nicht erkannt. Näher ran!";
+             console.log("Verworfen:", clean);
         }
     } catch (e) {
         console.error(e);

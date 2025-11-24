@@ -14,36 +14,26 @@ let isSmartBookingInit = false;
 export function initGuestView(hostData) {
     dom.guestHostName.textContent = hostData.hostName;
     
-    // 1. Status überwachen (Ampel)
     const unsub = subscribeToStatus((status) => {
         updateGuestStatusUI('guest-status-p1', status.P1);
         updateGuestStatusUI('guest-status-p2', status.P2);
     });
     
-    // 2. "Jetzt Parken" Button
     dom.guestParkNowBtn.addEventListener('click', handleParkNow);
-
-    // 3. "Checkout" Button
     dom.guestCheckoutBtn.addEventListener('click', handleCheckout);
 
-    // 4. "Reservieren" Button -> Öffnet Smart Booking
     dom.guestReserveBtn.addEventListener('click', () => {
         if(!isSmartBookingInit) setupGuestSmartBooking();
         resetBookingForm();
         
-        // WICHTIG: Platzhalter ändern für Klarheit
         if(dom.bookingPlate) dom.bookingPlate.placeholder = "Kennzeichen (Pflicht)";
-        
-        // Kennzeichen übernehmen falls schon eingetippt
         if(dom.guestPlateInput.value.trim()) {
             dom.bookingPlate.value = dom.guestPlateInput.value.trim();
         }
 
-        // Ansicht wechseln
         document.getElementById('bookingSection').style.display = 'block';
         document.getElementById('guestSection').style.display = 'none';
         
-        // Back Button Logik
         const backBtn = document.getElementById('back-to-menu-btn-booking');
         const newBackBtn = backBtn.cloneNode(true);
         backBtn.parentNode.replaceChild(newBackBtn, backBtn);
@@ -53,29 +43,22 @@ export function initGuestView(hostData) {
         });
     });
 
-    // 5. Kamera Scanner für Gäste
     if(dom.guestScanBtn) {
         dom.guestScanBtn.addEventListener('click', () => startCamera('guest'));
     }
     
-    // Globale Listener (Snap & Close)
     dom.closeCameraBtn.addEventListener('click', stopCamera);
     dom.snapBtn.addEventListener('click', takePictureAndScan);
 }
 
-// --- JETZT PARKEN (Startseite) ---
 async function handleParkNow() {
     const plate = dom.guestPlateInput.value.trim();
-    
-    // VALIDIERUNG MIT ROTEM RAHMEN
     if (!plate) {
         showMessage('guest-message', "Bitte erst Kennzeichen eingeben.", 'error');
         
-        // Roter Rahmen & Fokus Effekt
         dom.guestPlateInput.focus();
         dom.guestPlateInput.style.transition = "border 0.2s";
         dom.guestPlateInput.style.border = "2px solid var(--danger)";
-        // Rahmen nach 2 Sekunden wieder entfernen
         setTimeout(() => dom.guestPlateInput.style.border = "none", 2000);
         return;
     }
@@ -123,7 +106,6 @@ function updateGuestStatusUI(elementId, status) {
     const el = document.getElementById(elementId);
     const icon = el.querySelector('.status-icon');
     const text = el.querySelector('.status-text');
-    
     el.className = 'status-card'; 
     if (status === 'busy') {
         el.classList.add('busy');
@@ -136,10 +118,8 @@ function updateGuestStatusUI(elementId, status) {
     }
 }
 
-// --- SMART BOOKING LOGIC (Reservieren) ---
 function setupGuestSmartBooking() {
     isSmartBookingInit = true;
-    
     dom.spotCards.forEach(card => {
         card.addEventListener('click', () => {
             dom.spotCards.forEach(c => c.classList.remove('selected'));
@@ -171,19 +151,15 @@ function setupGuestSmartBooking() {
         });
     });
 
-    // SUBMIT MIT VALIDIERUNG (ROTER RAHMEN)
     dom.bookSubmitBtn.addEventListener('click', async () => {
         const finalStart = new Date(selectedDate);
         finalStart.setHours(selectedTime.getHours(), selectedTime.getMinutes(), 0, 0);
         const finalEnd = new Date(finalStart.getTime() + durationMinutes * 60000);
         
-        // Wir prüfen hier das Feld, das der Nutzer gerade sieht (bookingPlate)
         const plate = dom.bookingPlate.value.trim(); 
 
         if (!plate) {
             showMessage('booking-error', 'Bitte Kennzeichen eingeben (Pflicht).', 'error');
-            
-            // Roter Rahmen & Fokus Effekt auch hier
             dom.bookingPlate.focus();
             dom.bookingPlate.style.transition = "border 0.2s";
             dom.bookingPlate.style.border = "2px solid var(--danger)";
@@ -195,7 +171,6 @@ function setupGuestSmartBooking() {
         dom.bookSubmitBtn.textContent = "Buche...";
 
         const result = await createBooking(finalStart.toISOString(), finalEnd.toISOString(), dom.bookingSpot.value, plate, 'booking-error');
-        
         dom.bookSubmitBtn.disabled = false;
         dom.bookSubmitBtn.textContent = "FERTIG";
 
@@ -232,7 +207,9 @@ async function startCamera(mode) {
     try {
         dom.cameraOverlay.classList.remove('hidden');
         dom.scanStatusText.textContent = "Bereit...";
-        cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        cameraStream = await navigator.mediaDevices.getUserMedia({ 
+            video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } } 
+        });
         dom.cameraVideo.srcObject = cameraStream;
     } catch (e) {
         console.error(e);
@@ -255,7 +232,7 @@ function preprocessImage(canvas) {
     const data = imageData.data;
     for (let i = 0; i < data.length; i += 4) {
         const gray = (data[i] + data[i + 1] + data[i + 2]) / 3;
-        const val = gray < 110 ? 0 : 255;
+        const val = gray < 100 ? 0 : 255;
         data[i] = data[i + 1] = data[i + 2] = val;
     }
     ctx.putImageData(imageData, 0, 0);
@@ -263,13 +240,15 @@ function preprocessImage(canvas) {
 
 async function takePictureAndScan() {
     if (!cameraStream) return;
-    dom.scanStatusText.textContent = "Scanne...";
+    dom.scanStatusText.textContent = "Analysiere...";
     dom.snapBtn.disabled = true;
 
     const video = dom.cameraVideo;
     const canvas = dom.cameraCanvas;
-    const sWidth = video.videoWidth * 0.85;
-    const sHeight = video.videoHeight * 0.20;
+    
+    // CROP TUNING (70% Breit, 10% Hoch)
+    const sWidth = video.videoWidth * 0.70;
+    const sHeight = video.videoHeight * 0.10;
     const sx = (video.videoWidth - sWidth) / 2;
     const sy = (video.videoHeight * 0.45) - (sHeight / 2);
 
@@ -290,7 +269,9 @@ async function takePictureAndScan() {
         clean = clean.replace(/\s+/g, '-');
         clean = clean.replace(/^-+|-+$/g, '');
 
-        if (clean.length >= 3 && clean.length <= 10) {
+        const hasNumber = /[0-9]/.test(clean);
+
+        if (clean.length >= 3 && clean.length <= 10 && hasNumber) {
             if(currentInputTarget) currentInputTarget.value = clean;
             stopCamera();
         } else {
