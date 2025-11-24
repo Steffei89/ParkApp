@@ -108,7 +108,6 @@ async function startCamera() {
     try {
         dom.cameraOverlay.classList.remove('hidden');
         dom.scanStatusText.textContent = "Kamera ausrichten...";
-        // Hohe Auflösung anfordern
         cameraStream = await navigator.mediaDevices.getUserMedia({ 
             video: { 
                 facingMode: 'environment',
@@ -119,7 +118,7 @@ async function startCamera() {
         dom.cameraVideo.srcObject = cameraStream;
     } catch (e) {
         console.error(e);
-        alert("Kamera-Zugriff verweigert oder nicht möglich.");
+        alert("Kamera Fehler.");
         stopCamera();
     }
 }
@@ -132,77 +131,148 @@ function stopCamera() {
     }
 }
 
-// INTELLIGENTE ERKENNUNG
-function parseLicensePlate(text) {
-    // Bereinigen: Nur Großbuchstaben und Zahlen behalten (und Bindestriche)
-    // Wir erlauben vorerst alles, um das Muster zu finden
-    const raw = text.toUpperCase();
+// BILDVERARBEITUNG 3.0 (High Contrast Binarization)
+function preprocessImage(canvas) {
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+    
+    // 1. Durchschnittshelligkeit ermitteln (für adaptiven Threshold)
+    let totalBrightness = 0;
+    for (let i = 0; i < data.length; i += 4) {
+        totalBrightness += (data[i] + data[i+1] + data[i+2]) / 3;
+    }
+    const avgBrightness = totalBrightness / (data.length / 4);
+    
+    // Schwellenwert etwas unter dem Durchschnitt ansetzen (Text ist dunkel)
+    const threshold = avgBrightness * 0.65; 
 
-    // REGEX für deutsche Kennzeichen:
-    // Gruppe 1: Ort (1-3 Buchstaben)
-    // Zwischendrin: Egal was (Leerzeichen, Striche, Punkte, Müll)
-    // Gruppe 2: Erkennungsbuchstaben (1-2 Buchstaben)
-    // Zwischendrin: Egal was
-    // Gruppe 3: Zahlen (1-4 Ziffern)
-    const regex = /([A-ZÄÖÜ]{1,3})[\s\W_-]*([A-Z]{1,2})[\s\W_-]*([0-9]{1,4})/;
+    // 2. Binarisieren (Schwarz/Weiß)
+    for (let i = 0; i < data.length; i += 4) {
+        const gray = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
+        const val = gray < threshold ? 0 : 255; // Hartes Schwarz oder Weiß
+        data[i] = val;
+        data[i + 1] = val;
+        data[i + 2] = val;
+    }
+    ctx.putImageData(imageData, 0, 0);
+}
+
+// INTELLIGENTE FEHLERKORREKTUR
+function fixCharacterConfusion(str, isNumberPart) {
+    if (!str) return "";
+    let res = str;
+    if (isNumberPart) {
+        // Erwarte Zahlen -> Mache Buchstaben zu Zahlen
+        res = res.replace(/O/g, '0').replace(/D/g, '0').replace(/I/g, '1').replace(/L/g, '1')
+                 .replace(/Z/g, '7').replace(/S/g, '5').replace(/B/g, '8').replace(/G/g, '6');
+    } else {
+        // Erwarte Buchstaben -> Mache Zahlen zu Buchstaben
+        res = res.replace(/0/g, 'O').replace(/1/g, 'I').replace(/8/g, 'B').replace(/5/g, 'S').replace(/4/g, 'A');
+    }
+    return res;
+}
+
+function parseLicensePlate(text) {
+    // 1. Grob bereinigen: Nur Alphanumerik und Leerzeichen
+    const raw = text.toUpperCase().replace(/[^A-Z0-9\s]/g, '');
     
-    const match = raw.match(regex);
+    // 2. Splitten an Leerzeichen (Tesseract erkennt Abstände oft als Leerzeichen)
+    let parts = raw.trim().split(/\s+/);
     
-    if (match) {
-        // Treffer! Wir bauen es sauber zusammen
-        return `${match[1]}-${match[2]}-${match[3]}`;
+    // Wenn wir weniger als 3 Teile haben, versuchen wir intelligent zu trennen
+    // Fallback: "BGLAB123" -> Wir suchen den Übergang von Buchstabe zu Zahl
+    if (parts.length < 2) {
+        const merged = parts.join('');
+        // Suche ersten Index einer Zahl
+        const firstNumIdx = merged.search(/\d/);
+        if (firstNumIdx > 1) { // Mindestens 2 Buchstaben am Anfang erwartet
+            const letters = merged.substring(0, firstNumIdx);
+            const numbers = merged.substring(firstNumIdx);
+            
+            // Wenn Buchstaben sehr lang (z.B. 5), müssen wir Stadt und Erkennung trennen
+            // Heuristik: Stadt ist meist 1-3 Zeichen.
+            let city = letters; 
+            let mid = "";
+            
+            if (letters.length > 3) {
+                // Rate mal: Erste 3 sind Stadt (z.B. "BGLAB" -> BGL-AB)
+                city = letters.substring(0, 3);
+                mid = letters.substring(3);
+            } else if (letters.length === 3) {
+                // Könnte "M-AB" sein oder "TOL-?" -> Schwierig.
+                // Wir lassen es als Block, wenn Tesseract kein Space gesehen hat.
+            }
+            
+            if(mid) parts = [city, mid, numbers];
+            else parts = [letters, numbers];
+        }
+    }
+
+    // 3. Teile analysieren und korrigieren
+    // Teil 1 (Stadt): Immer Buchstaben
+    if(parts[0]) parts[0] = fixCharacterConfusion(parts[0], false);
+    
+    // Letzter Teil (Zahl): Immer Zahlen
+    const lastIdx = parts.length - 1;
+    if(parts[lastIdx]) parts[lastIdx] = fixCharacterConfusion(parts[lastIdx], true);
+    
+    // Mittlerer Teil (Erkennung): Buchstaben
+    if(parts.length === 3) parts[1] = fixCharacterConfusion(parts[1], false);
+
+    // 4. Zusammenbauen
+    // Mindestens: Stadt + Zahl
+    if (parts.length >= 2) {
+        return parts.join('-');
     }
     return null;
 }
 
 async function takePictureAndScan() {
     if (!cameraStream) return;
-    dom.scanStatusText.textContent = "Analysiere...";
+    dom.scanStatusText.textContent = "Verarbeite (Smart AI)...";
     dom.snapBtn.disabled = true;
 
     const video = dom.cameraVideo;
     const canvas = dom.cameraCanvas;
     
-    // TUNNELBLICK: Wir schneiden das Bild zu
-    // Breite: 80%, Höhe: 15% (schmaler Streifen in der Mitte)
-    const sWidth = video.videoWidth * 0.80;
+    // CROP 75% Breite / 15% Höhe
+    const sWidth = video.videoWidth * 0.75;
     const sHeight = video.videoHeight * 0.15;
     const sx = (video.videoWidth - sWidth) / 2;
-    const sy = (video.videoHeight * 0.45) - (sHeight / 2); // Leicht nach oben versetzt
+    const sy = (video.videoHeight * 0.45) - (sHeight / 2);
 
-    canvas.width = sWidth;
-    canvas.height = sHeight;
+    // UPSCALING 2x für Schärfe
+    canvas.width = sWidth * 2;
+    canvas.height = sHeight * 2;
     const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, canvas.width, canvas.height);
     
-    // Zeichnen (ohne manuellen Filter, Tesseract macht das selbst besser)
-    ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, sWidth, sHeight);
+    preprocessImage(canvas);
 
     try {
         const { createWorker } = Tesseract;
-        const worker = await createWorker('deu'); 
-        
-        // Wir erlauben Tesseract, ALLES zu sehen, damit wir den Kontext (Abstände) nutzen können
-        // Aber wir sagen ihm, dass er bevorzugt nach Kennzeichen-Zeichen suchen soll
+        const worker = await createWorker('deu');
+        // PSM 7 = Single Line ist essentiell!
         await worker.setParameters({ 
-            tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÜ0123456789-:. ' 
+            tessedit_pageseg_mode: '7',
+            tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ' 
         });
         
         const { data: { text } } = await worker.recognize(canvas);
         await worker.terminate();
 
-        // Intelligentes Parsen
         const result = parseLicensePlate(text);
 
-        if (result) {
+        if (result && result.length >= 4) {
             dom.bookingPlate.value = result;
             stopCamera();
         } else {
-             dom.scanStatusText.textContent = "Kein Kennzeichen erkannt. Näher ran!";
-             console.log("Raw Text war:", text);
+             dom.scanStatusText.textContent = `Nicht erkannt (${text.trim()}). Versuch's nochmal!`;
         }
     } catch (e) {
         console.error(e);
-        alert("Fehler beim Scannen.");
+        alert("Fehler.");
     }
     dom.snapBtn.disabled = false;
 }
@@ -232,13 +302,13 @@ function updateDurationUI() {
 function updateTimeDisplay() {
     const hh = String(selectedTime.getHours()).padStart(2, '0');
     const mm = String(selectedTime.getMinutes()).padStart(2, '0');
-    dom.displayStartTime.textContent = `${hh}:${mm}`;
+    document.getElementById('display-start-time').textContent = `${hh}:${mm}`;
     const combinedStart = new Date(selectedDate);
     combinedStart.setHours(selectedTime.getHours(), selectedTime.getMinutes());
     const combinedEnd = new Date(combinedStart.getTime() + durationMinutes * 60000);
     const endHH = String(combinedEnd.getHours()).padStart(2, '0');
     const endMM = String(combinedEnd.getMinutes()).padStart(2, '0');
-    dom.displayEndTime.textContent = `${endHH}:${endMM}`;
+    document.getElementById('display-end-time').textContent = `${endHH}:${endMM}`;
 }
 
 export function loadMyBookings() {

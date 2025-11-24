@@ -3,6 +3,7 @@ import { createBooking, deleteBooking, subscribeToStatus } from '../services/boo
 import { showMessage } from '../ui.js';
 import { DEFAULT_PARKING_DURATION } from '../config.js';
 
+// Variablen für die Gast-Session
 let currentGuestBookingId = null;
 let selectedDate = new Date();
 let selectedTime = new Date();
@@ -199,13 +200,15 @@ function resetBookingForm() {
     updateTimeDisplay();
 }
 
+let currentInputTarget = null; 
+
 async function startCamera(mode) {
     if(mode === 'guest') currentInputTarget = dom.guestPlateInput;
     else currentInputTarget = dom.bookingPlate;
 
     try {
         dom.cameraOverlay.classList.remove('hidden');
-        dom.scanStatusText.textContent = "Kamera ausrichten...";
+        dom.scanStatusText.textContent = "Bereit...";
         cameraStream = await navigator.mediaDevices.getUserMedia({ 
             video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } } 
         });
@@ -225,51 +228,110 @@ function stopCamera() {
     }
 }
 
+function preprocessImage(canvas) {
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+    
+    let totalBrightness = 0;
+    for (let i = 0; i < data.length; i += 4) {
+        totalBrightness += (data[i] + data[i+1] + data[i+2]) / 3;
+    }
+    const avgBrightness = totalBrightness / (data.length / 4);
+    const threshold = avgBrightness * 0.65; 
+
+    for (let i = 0; i < data.length; i += 4) {
+        const gray = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
+        const val = gray < threshold ? 0 : 255; 
+        data[i] = data[i + 1] = data[i + 2] = val;
+    }
+    ctx.putImageData(imageData, 0, 0);
+}
+
+function fixCharacterConfusion(str, isNumberPart) {
+    if (!str) return "";
+    let res = str;
+    if (isNumberPart) {
+        res = res.replace(/O/g, '0').replace(/D/g, '0').replace(/I/g, '1').replace(/L/g, '1')
+                 .replace(/Z/g, '7').replace(/S/g, '5').replace(/B/g, '8').replace(/G/g, '6');
+    } else {
+        res = res.replace(/0/g, 'O').replace(/1/g, 'I').replace(/8/g, 'B').replace(/5/g, 'S').replace(/4/g, 'A');
+    }
+    return res;
+}
+
 function parseLicensePlate(text) {
-    const raw = text.toUpperCase();
-    // Regex: 1-3 Buchstaben + irgendwas + 1-2 Buchstaben + irgendwas + 1-4 Zahlen
-    const regex = /([A-ZÄÖÜ]{1,3})[\s\W_-]*([A-Z]{1,2})[\s\W_-]*([0-9]{1,4})/;
-    const match = raw.match(regex);
-    if (match) return `${match[1]}-${match[2]}-${match[3]}`;
+    const raw = text.toUpperCase().replace(/[^A-Z0-9\s]/g, '');
+    let parts = raw.trim().split(/\s+/);
+    
+    if (parts.length < 2) {
+        const merged = parts.join('');
+        const firstNumIdx = merged.search(/\d/);
+        if (firstNumIdx > 1) {
+            const letters = merged.substring(0, firstNumIdx);
+            const numbers = merged.substring(firstNumIdx);
+            let city = letters; 
+            let mid = "";
+            if (letters.length > 3) {
+                city = letters.substring(0, 3);
+                mid = letters.substring(3);
+            }
+            if(mid) parts = [city, mid, numbers];
+            else parts = [letters, numbers];
+        }
+    }
+
+    if(parts[0]) parts[0] = fixCharacterConfusion(parts[0], false);
+    const lastIdx = parts.length - 1;
+    if(parts[lastIdx]) parts[lastIdx] = fixCharacterConfusion(parts[lastIdx], true);
+    if(parts.length === 3) parts[1] = fixCharacterConfusion(parts[1], false);
+
+    if (parts.length >= 2) {
+        return parts.join('-');
+    }
     return null;
 }
 
 async function takePictureAndScan() {
     if (!cameraStream) return;
-    dom.scanStatusText.textContent = "Analysiere...";
+    dom.scanStatusText.textContent = "Analysiere (High-Res)...";
     dom.snapBtn.disabled = true;
 
     const video = dom.cameraVideo;
     const canvas = dom.cameraCanvas;
     
-    const sWidth = video.videoWidth * 0.80;
+    const sWidth = video.videoWidth * 0.75;
     const sHeight = video.videoHeight * 0.15;
     const sx = (video.videoWidth - sWidth) / 2;
     const sy = (video.videoHeight * 0.45) - (sHeight / 2);
 
-    canvas.width = sWidth;
-    canvas.height = sHeight;
+    canvas.width = sWidth * 2;
+    canvas.height = sHeight * 2;
     const ctx = canvas.getContext('2d');
-    ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, sWidth, sHeight);
+    ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, canvas.width, canvas.height);
+    
+    preprocessImage(canvas);
 
     try {
         const { createWorker } = Tesseract;
         const worker = await createWorker('deu');
-        await worker.setParameters({ tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÜ0123456789-:. ' });
+        await worker.setParameters({ 
+            tessedit_pageseg_mode: '7',
+            tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ' 
+        });
         const { data: { text } } = await worker.recognize(canvas);
         await worker.terminate();
 
         const result = parseLicensePlate(text);
 
-        if (result) {
+        if (result && result.length >= 4) {
             if(currentInputTarget) currentInputTarget.value = result;
             stopCamera();
         } else {
-             dom.scanStatusText.textContent = "Kein Kennzeichen erkannt.";
+             dom.scanStatusText.textContent = `Nicht erkannt (${text.trim()}). Versuch's nochmal!`;
         }
     } catch (e) {
         console.error(e);
-        alert("Fehler.");
     }
     dom.snapBtn.disabled = false;
 }
