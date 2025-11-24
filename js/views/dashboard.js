@@ -165,78 +165,64 @@ function fixCharacterConfusion(str, isNumberPart) {
     return res;
 }
 
-// SMARTER PARSER V3 (Lazy Matching)
+// PARSER V4 (Robust against Blue Strip & Cutoff)
 function parseLicensePlate(text) {
     // 1. Alles bereinigen
-    const raw = text.toUpperCase().replace(/[^A-Z0-9]/g, ''); // Alles weg außer A-Z und 0-9
+    const raw = text.toUpperCase().replace(/[^A-Z0-9]/g, '');
     
-    // 2. Wir nutzen REGEX mit "Lazy Matching" (?) für die erste Gruppe
-    // Das zwingt die Regex, so WENIG Buchstaben wie möglich für den Ort zu nehmen,
-    // solange der Rest noch passt (1-2 Buchstaben + Zahlen).
-    // Das korrigiert "MAB123" zu "M-AB-123" statt "MA-B-123".
+    // 2. Wir suchen von hinten: Zuerst die Zahlen (Ende), dann die mittleren Buchstaben
+    // Regex: Irgendwelche Zeichen (Stadt+Müll) -> 1-2 Buchstaben -> 1-4 Zahlen -> Ende
+    const regex = /([A-Z0-9]+)([A-Z]{1,2})([0-9]{1,4})$/;
     
-    // Erklärung:
-    // ([A-ZÄÖÜ]{1,3}?)  -> Ort: 1-3 Buchstaben, aber so wenig wie möglich (Lazy)
-    // ([A-Z]{1,2})      -> Erkennung: 1-2 Buchstaben
-    // ([0-9]{1,4})      -> Zahl: 1-4 Ziffern
-    const regex = /^([A-ZÄÖÜ]{1,3}?)([A-Z]{1,2})([0-9]{1,4})$/;
-    
-    // Wir suchen die Zahlen am Ende, um den String von hinten aufzurollen
-    // Das ist sicherer als von vorne.
-    const match = raw.match(/([A-Z0-9]+?)([0-9]{1,4})$/);
+    const match = raw.match(regex);
     
     if (match) {
-        const lettersPart = match[1];
-        const numberPart = match[2];
+        let cityRaw = match[1]; // Hier steckt "D" + "BGL" drin
+        let mid = match[2];
+        let num = match[3];
         
-        // Jetzt müssen wir den Buchstaben-Teil (z.B. "BGLAB" oder "MAB") trennen
-        // Strategie: Wenn 3 Buchstaben -> 1-2 (M-AB)
-        // Wenn 4 Buchstaben -> 2-2 (RO-AB)
-        // Wenn 5 Buchstaben -> 3-2 (BGL-AB)
+        // CLEANUP STADT:
+        // Deutsche Städte haben max 3 Buchstaben.
+        // Wenn wir also z.B. "DBGL" oder "IIRO" haben, nehmen wir nur die LETZTEN 1-3 Buchstaben.
+        // Das schneidet das führende "D" oder Fragmente automatisch ab.
         
-        let city = "";
-        let mid = "";
-        
-        if (lettersPart.length === 5) {
-            city = lettersPart.substring(0, 3);
-            mid = lettersPart.substring(3);
-        } else if (lettersPart.length === 4) {
-            city = lettersPart.substring(0, 2);
-            mid = lettersPart.substring(2);
-        } else if (lettersPart.length === 3) {
-            city = lettersPart.substring(0, 1); // Bevorzuge große Städte (M, B, S)
-            mid = lettersPart.substring(1);
-        } else if (lettersPart.length === 2) {
-            city = lettersPart.substring(0, 1);
-            mid = lettersPart.substring(1);
-        } else {
-            return null; // Ungültige Länge
+        // Wir nehmen maximal die letzten 3 Zeichen
+        let city = cityRaw;
+        if (cityRaw.length > 3) {
+            city = cityRaw.substring(cityRaw.length - 3);
         }
-        
-        // Korrekturen anwenden
+        // Wenn es immer noch unplausibel ist (z.B. Zahlen drin), fixen wir das
         city = fixCharacterConfusion(city, false);
+        
+        // Sicherheitscheck: Stadt muss min 1 Zeichen sein
+        if (city.length < 1) return null;
+
+        // Rest korrigieren
         mid = fixCharacterConfusion(mid, false);
-        const num = fixCharacterConfusion(numberPart, true);
+        num = fixCharacterConfusion(num, true);
         
         return `${city}-${mid}-${num}`;
     }
+    
     return null;
 }
 
 async function takePictureAndScan() {
     if (!cameraStream) return;
-    dom.scanStatusText.textContent = "Analysiere (Präzision)...";
+    dom.scanStatusText.textContent = "Analysiere...";
     dom.snapBtn.disabled = true;
 
     const video = dom.cameraVideo;
     const canvas = dom.cameraCanvas;
     
-    const sWidth = video.videoWidth * 0.70;
-    const sHeight = video.videoHeight * 0.12; 
+    // CROP: Wir gehen zurück auf 80% Breite (war 70%), um sicherzustellen,
+    // dass der erste Buchstabe auf jeden Fall drauf ist.
+    const sWidth = video.videoWidth * 0.80; 
+    const sHeight = video.videoHeight * 0.15;
     const sx = (video.videoWidth - sWidth) / 2;
     const sy = (video.videoHeight * 0.45) - (sHeight / 2);
 
-    canvas.width = sWidth * 2;
+    canvas.width = sWidth * 2; // Upscaling
     canvas.height = sHeight * 2;
     const ctx = canvas.getContext('2d');
     ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, canvas.width, canvas.height);
@@ -249,7 +235,7 @@ async function takePictureAndScan() {
         
         await worker.setParameters({ 
             tessedit_pageseg_mode: '7',
-            tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÜ0123456789' // Keine Sonderzeichen erlaubt!
+            tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÜ0123456789' 
         });
         
         const { data: { text } } = await worker.recognize(canvas);
