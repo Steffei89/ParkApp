@@ -21,7 +21,6 @@ export const resetPasswordForm = document.getElementById("resetPasswordForm");
 
 // Main Menu
 export const mainMenu = document.getElementById("mainMenu");
-// userInfo gibt es als Block nicht mehr so wie früher, wir steuern jetzt appHeader an
 export const myBookingsList = document.getElementById("my-bookings-list");
 
 // Sections
@@ -55,6 +54,10 @@ export const bookSubmitBtn = document.getElementById("book-submit-btn");
 
 // Overview Elements
 export const overviewDatePicker = document.getElementById("overview-date-picker");
+export const overviewDateLabel = document.getElementById("overview-date-label"); 
+export const prevDayBtn = document.getElementById("prev-day-btn"); 
+export const nextDayBtn = document.getElementById("next-day-btn"); 
+
 export const trackLanesP1 = document.getElementById("lanes-p1");
 export const trackLanesP2 = document.getElementById("lanes-p2");
 export const bookingListDay = document.getElementById("booking-list-day");

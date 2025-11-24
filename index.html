@@ -233,7 +233,21 @@
   <div id="overviewSection" class="card" style="display:none;">
     <button id="back-to-menu-btn-overview" class="back-button"><i class="fa-solid fa-chevron-left"></i> Zurück</button>
     <h2>Belegungsplan</h2>
-    <input type="date" id="overview-date-picker" class="mb-3">
+    
+    <div class="date-controls mb-3">
+        <button id="prev-day-btn" class="nav-arrow-btn">
+            <i class="fa-solid fa-chevron-left"></i>
+        </button>
+        
+        <div class="date-display-wrapper">
+            <span id="overview-date-label">Heute</span>
+            <input type="date" id="overview-date-picker" class="hidden-overlay-input">
+        </div>
+
+        <button id="next-day-btn" class="nav-arrow-btn">
+            <i class="fa-solid fa-chevron-right"></i>
+        </button>
+    </div>
     
     <div id="day-schedule-container" class="timeline-container">
         <div class="timeline-header">

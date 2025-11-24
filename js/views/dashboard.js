@@ -125,30 +125,83 @@ function updateSpotUI(elementId, status) {
     }
 }
 
-// --- NEU: ÜBERSICHTS-LOGIK ---
+// --- ÜBERSICHTS-LOGIK (NEU) ---
 
 export function initOverviewView() {
     const datePicker = dom.overviewDatePicker;
+    const dateLabel = dom.overviewDateLabel;
     
-    // Default auf Heute setzen, wenn leer
-    if (!datePicker.value) {
-        datePicker.value = getTodayDateString();
-    }
+    // Wir nutzen ein Date-Objekt für die Berechnung
+    let currentDateObj = new Date();
+    
+    // Hilfsfunktion: Datum formatieren & Input setzen
+    const updateDateDisplay = () => {
+        // 1. Input Value setzen (für Logik & Picker)
+        const yyyy = currentDateObj.getFullYear();
+        const mm = String(currentDateObj.getMonth() + 1).padStart(2, '0');
+        const dd = String(currentDateObj.getDate()).padStart(2, '0');
+        const isoDate = `${yyyy}-${mm}-${dd}`;
+        datePicker.value = isoDate;
 
-    // Funktion zum Laden der Daten
-    const loadData = () => {
-        const dateStr = datePicker.value;
+        // 2. Label Text hübsch machen
+        const today = new Date();
+        const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
+        const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+
+        // Reset hours für Vergleich
+        const reset = d => d.setHours(0,0,0,0);
+        const curTime = reset(new Date(currentDateObj));
+        
+        if (curTime === reset(today)) {
+            dateLabel.textContent = "Heute";
+        } else if (curTime === reset(tomorrow)) {
+            dateLabel.textContent = "Morgen";
+        } else if (curTime === reset(yesterday)) {
+            dateLabel.textContent = "Gestern";
+        } else {
+            // Z.B. "Mo, 24.11."
+            dateLabel.textContent = currentDateObj.toLocaleDateString('de-DE', { 
+                weekday: 'short', day: '2-digit', month: '2-digit' 
+            });
+        }
+        
+        // 3. Daten laden
+        loadData(isoDate);
+    };
+
+    // Daten laden Funktion
+    const loadData = (dateStr) => {
         const unsub = subscribeToReservationsForDate(dateStr, (bookings) => {
             renderTimeline(bookings, dateStr);
         });
         setUnsubscriber('overview', unsub);
     };
 
-    // Erster Load
-    loadData();
+    // --- EVENT LISTENER ---
 
-    // Bei Änderung des Datums neu laden
-    datePicker.onchange = loadData;
+    // Initialisieren (beim ersten Öffnen auf Heute)
+    // Wir setzen es immer neu, damit "Heute" auch heute ist
+    updateDateDisplay();
+
+    // Pfeil Links (Gestern)
+    if(dom.prevDayBtn) dom.prevDayBtn.onclick = () => {
+        currentDateObj.setDate(currentDateObj.getDate() - 1);
+        updateDateDisplay();
+    };
+
+    // Pfeil Rechts (Morgen)
+    if(dom.nextDayBtn) dom.nextDayBtn.onclick = () => {
+        currentDateObj.setDate(currentDateObj.getDate() + 1);
+        updateDateDisplay();
+    };
+
+    // Picker geändert (Benutzer wählt Datum direkt)
+    datePicker.onchange = () => {
+        if(datePicker.value) {
+            currentDateObj = new Date(datePicker.value);
+            updateDateDisplay();
+        }
+    };
 }
 
 function renderTimeline(bookings, dateStr) {
@@ -170,7 +223,6 @@ function renderTimeline(bookings, dateStr) {
         const end = new Date(b.endZeit);
         
         // Wir müssen prüfen, ob die Buchung am gewählten Tag sichtbar ist
-        // Startet sie heute? Oder läuft sie von gestern rein?
         const dayStart = new Date(dateStr + "T00:00:00");
         const dayEnd = new Date(dateStr + "T23:59:59");
 
@@ -224,6 +276,6 @@ function renderTimeline(bookings, dateStr) {
     });
 
     if (bookings.length === 0) {
-        detailsList.innerHTML = '<p class="text-center small-text">Alles frei für heute.</p>';
+        detailsList.innerHTML = '<p class="text-center small-text">Alles frei.</p>';
     }
 }
