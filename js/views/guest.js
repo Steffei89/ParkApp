@@ -3,13 +3,13 @@ import { createBooking, deleteBooking, subscribeToStatus } from '../services/boo
 import { showMessage } from '../ui.js';
 import { DEFAULT_PARKING_DURATION } from '../config.js';
 
-// Variablen für die Gast-Session
 let currentGuestBookingId = null;
 let selectedDate = new Date();
 let selectedTime = new Date();
 let durationMinutes = 120;
 let cameraStream = null;
 let isSmartBookingInit = false; 
+let currentInputTarget = null; 
 
 export function initGuestView(hostData) {
     dom.guestHostName.textContent = hostData.hostName;
@@ -27,6 +27,7 @@ export function initGuestView(hostData) {
         resetBookingForm();
         
         if(dom.bookingPlate) dom.bookingPlate.placeholder = "Kennzeichen (Pflicht)";
+        
         if(dom.guestPlateInput.value.trim()) {
             dom.bookingPlate.value = dom.guestPlateInput.value.trim();
         }
@@ -55,7 +56,6 @@ async function handleParkNow() {
     const plate = dom.guestPlateInput.value.trim();
     if (!plate) {
         showMessage('guest-message', "Bitte erst Kennzeichen eingeben.", 'error');
-        
         dom.guestPlateInput.focus();
         dom.guestPlateInput.style.transition = "border 0.2s";
         dom.guestPlateInput.style.border = "2px solid var(--danger)";
@@ -120,6 +120,7 @@ function updateGuestStatusUI(elementId, status) {
 
 function setupGuestSmartBooking() {
     isSmartBookingInit = true;
+    
     dom.spotCards.forEach(card => {
         card.addEventListener('click', () => {
             dom.spotCards.forEach(c => c.classList.remove('selected'));
@@ -198,15 +199,13 @@ function resetBookingForm() {
     updateTimeDisplay();
 }
 
-let currentInputTarget = null; 
-
 async function startCamera(mode) {
     if(mode === 'guest') currentInputTarget = dom.guestPlateInput;
     else currentInputTarget = dom.bookingPlate;
 
     try {
         dom.cameraOverlay.classList.remove('hidden');
-        dom.scanStatusText.textContent = "Bereit...";
+        dom.scanStatusText.textContent = "Kamera ausrichten...";
         cameraStream = await navigator.mediaDevices.getUserMedia({ 
             video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } } 
         });
@@ -226,16 +225,13 @@ function stopCamera() {
     }
 }
 
-function preprocessImage(canvas) {
-    const ctx = canvas.getContext('2d');
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const data = imageData.data;
-    for (let i = 0; i < data.length; i += 4) {
-        const gray = (data[i] + data[i + 1] + data[i + 2]) / 3;
-        const val = gray < 100 ? 0 : 255;
-        data[i] = data[i + 1] = data[i + 2] = val;
-    }
-    ctx.putImageData(imageData, 0, 0);
+function parseLicensePlate(text) {
+    const raw = text.toUpperCase();
+    // Regex: 1-3 Buchstaben + irgendwas + 1-2 Buchstaben + irgendwas + 1-4 Zahlen
+    const regex = /([A-ZÄÖÜ]{1,3})[\s\W_-]*([A-Z]{1,2})[\s\W_-]*([0-9]{1,4})/;
+    const match = raw.match(regex);
+    if (match) return `${match[1]}-${match[2]}-${match[3]}`;
+    return null;
 }
 
 async function takePictureAndScan() {
@@ -246,9 +242,8 @@ async function takePictureAndScan() {
     const video = dom.cameraVideo;
     const canvas = dom.cameraCanvas;
     
-    // CROP TUNING (70% Breit, 10% Hoch)
-    const sWidth = video.videoWidth * 0.70;
-    const sHeight = video.videoHeight * 0.10;
+    const sWidth = video.videoWidth * 0.80;
+    const sHeight = video.videoHeight * 0.15;
     const sx = (video.videoWidth - sWidth) / 2;
     const sy = (video.videoHeight * 0.45) - (sHeight / 2);
 
@@ -256,29 +251,25 @@ async function takePictureAndScan() {
     canvas.height = sHeight;
     const ctx = canvas.getContext('2d');
     ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, sWidth, sHeight);
-    preprocessImage(canvas);
 
     try {
         const { createWorker } = Tesseract;
         const worker = await createWorker('deu');
-        await worker.setParameters({ tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÜ0123456789- ' });
+        await worker.setParameters({ tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÜ0123456789-:. ' });
         const { data: { text } } = await worker.recognize(canvas);
         await worker.terminate();
 
-        let clean = text.replace(/[^A-Z0-9- ]/g, '').trim();
-        clean = clean.replace(/\s+/g, '-');
-        clean = clean.replace(/^-+|-+$/g, '');
+        const result = parseLicensePlate(text);
 
-        const hasNumber = /[0-9]/.test(clean);
-
-        if (clean.length >= 3 && clean.length <= 10 && hasNumber) {
-            if(currentInputTarget) currentInputTarget.value = clean;
+        if (result) {
+            if(currentInputTarget) currentInputTarget.value = result;
             stopCamera();
         } else {
-             dom.scanStatusText.textContent = "Nix erkannt. Nochmal?";
+             dom.scanStatusText.textContent = "Kein Kennzeichen erkannt.";
         }
     } catch (e) {
         console.error(e);
+        alert("Fehler.");
     }
     dom.snapBtn.disabled = false;
 }

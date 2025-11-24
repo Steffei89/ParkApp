@@ -107,19 +107,19 @@ function setupCameraUI() {
 async function startCamera() {
     try {
         dom.cameraOverlay.classList.remove('hidden');
-        dom.scanStatusText.textContent = "Bereit...";
+        dom.scanStatusText.textContent = "Kamera ausrichten...";
+        // Hohe Auflösung anfordern
         cameraStream = await navigator.mediaDevices.getUserMedia({ 
             video: { 
                 facingMode: 'environment',
-                // Versuche hohe Auflösung für besseres OCR
                 width: { ideal: 1920 },
-                height: { ideal: 1080 } 
+                height: { ideal: 1080 }
             } 
         });
         dom.cameraVideo.srcObject = cameraStream;
     } catch (e) {
         console.error(e);
-        alert("Kamera Fehler.");
+        alert("Kamera-Zugriff verweigert oder nicht möglich.");
         stopCamera();
     }
 }
@@ -132,19 +132,27 @@ function stopCamera() {
     }
 }
 
-// BILDVERARBEITUNG (Verbesserter Kontrast)
-function preprocessImage(canvas) {
-    const ctx = canvas.getContext('2d');
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const data = imageData.data;
-    for (let i = 0; i < data.length; i += 4) {
-        const gray = (data[i] + data[i + 1] + data[i + 2]) / 3;
-        // Stärkerer Filter: Alles was nicht sehr dunkel ist, wird weiß.
-        // Threshold gesenkt auf 100 (war 110), um Schatten rauszufiltern.
-        const val = gray < 100 ? 0 : 255;
-        data[i] = data[i + 1] = data[i + 2] = val;
+// INTELLIGENTE ERKENNUNG
+function parseLicensePlate(text) {
+    // Bereinigen: Nur Großbuchstaben und Zahlen behalten (und Bindestriche)
+    // Wir erlauben vorerst alles, um das Muster zu finden
+    const raw = text.toUpperCase();
+
+    // REGEX für deutsche Kennzeichen:
+    // Gruppe 1: Ort (1-3 Buchstaben)
+    // Zwischendrin: Egal was (Leerzeichen, Striche, Punkte, Müll)
+    // Gruppe 2: Erkennungsbuchstaben (1-2 Buchstaben)
+    // Zwischendrin: Egal was
+    // Gruppe 3: Zahlen (1-4 Ziffern)
+    const regex = /([A-ZÄÖÜ]{1,3})[\s\W_-]*([A-Z]{1,2})[\s\W_-]*([0-9]{1,4})/;
+    
+    const match = raw.match(regex);
+    
+    if (match) {
+        // Treffer! Wir bauen es sauber zusammen
+        return `${match[1]}-${match[2]}-${match[3]}`;
     }
-    ctx.putImageData(imageData, 0, 0);
+    return null;
 }
 
 async function takePictureAndScan() {
@@ -155,49 +163,46 @@ async function takePictureAndScan() {
     const video = dom.cameraVideo;
     const canvas = dom.cameraCanvas;
     
-    // TUNNELBLICK CROP (FEINJUSTIERUNG)
-    // Breite: 70% (war 85%) -> Blendet Ränder aus
-    // Höhe: 10% (war 20%) -> Blendet Text darüber/darunter aus
-    const sWidth = video.videoWidth * 0.70;
-    const sHeight = video.videoHeight * 0.10;
+    // TUNNELBLICK: Wir schneiden das Bild zu
+    // Breite: 80%, Höhe: 15% (schmaler Streifen in der Mitte)
+    const sWidth = video.videoWidth * 0.80;
+    const sHeight = video.videoHeight * 0.15;
     const sx = (video.videoWidth - sWidth) / 2;
-    const sy = (video.videoHeight * 0.45) - (sHeight / 2);
+    const sy = (video.videoHeight * 0.45) - (sHeight / 2); // Leicht nach oben versetzt
 
     canvas.width = sWidth;
     canvas.height = sHeight;
     const ctx = canvas.getContext('2d');
+    
+    // Zeichnen (ohne manuellen Filter, Tesseract macht das selbst besser)
     ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, sWidth, sHeight);
-    preprocessImage(canvas);
 
     try {
         const { createWorker } = Tesseract;
         const worker = await createWorker('deu'); 
-        // Whitelist
-        await worker.setParameters({ tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÜ0123456789- ' });
+        
+        // Wir erlauben Tesseract, ALLES zu sehen, damit wir den Kontext (Abstände) nutzen können
+        // Aber wir sagen ihm, dass er bevorzugt nach Kennzeichen-Zeichen suchen soll
+        await worker.setParameters({ 
+            tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÜ0123456789-:. ' 
+        });
         
         const { data: { text } } = await worker.recognize(canvas);
         await worker.terminate();
 
-        // BEREINIGUNG
-        let clean = text.replace(/[^A-Z0-9- ]/g, '').trim();
-        clean = clean.replace(/\s+/g, '-'); // Leerzeichen zu Bindestrichen
-        clean = clean.replace(/^-+|-+$/g, ''); // Striche am Rand weg
+        // Intelligentes Parsen
+        const result = parseLicensePlate(text);
 
-        // INTELLIGENZ-FILTER
-        // 1. Länge 3-10 Zeichen
-        // 2. MUSS eine Zahl enthalten (filtert reine Stadtnamen/Wörter raus)
-        const hasNumber = /[0-9]/.test(clean);
-
-        if (clean.length >= 3 && clean.length <= 10 && hasNumber) {
-            dom.bookingPlate.value = clean;
+        if (result) {
+            dom.bookingPlate.value = result;
             stopCamera();
         } else {
-             dom.scanStatusText.textContent = "Nicht erkannt. Näher ran!";
-             console.log("Verworfen:", clean);
+             dom.scanStatusText.textContent = "Kein Kennzeichen erkannt. Näher ran!";
+             console.log("Raw Text war:", text);
         }
     } catch (e) {
         console.error(e);
-        alert("Fehler.");
+        alert("Fehler beim Scannen.");
     }
     dom.snapBtn.disabled = false;
 }
