@@ -3,7 +3,6 @@ import { createBooking, deleteBooking, subscribeToStatus } from '../services/boo
 import { showMessage } from '../ui.js';
 import { DEFAULT_PARKING_DURATION } from '../config.js';
 
-// Variablen für die Gast-Session
 let currentGuestBookingId = null;
 let selectedDate = new Date();
 let selectedTime = new Date();
@@ -11,6 +10,7 @@ let durationMinutes = 120;
 let cameraStream = null;
 let isSmartBookingInit = false; 
 let currentInputTarget = null; 
+let scanningActive = false; // Loop Control
 
 export function initGuestView(hostData) {
     dom.guestHostName.textContent = hostData.hostName;
@@ -28,7 +28,6 @@ export function initGuestView(hostData) {
         resetBookingForm();
         
         if(dom.bookingPlate) dom.bookingPlate.placeholder = "Kennzeichen (Pflicht)";
-        
         if(dom.guestPlateInput.value.trim()) {
             dom.bookingPlate.value = dom.guestPlateInput.value.trim();
         }
@@ -50,14 +49,14 @@ export function initGuestView(hostData) {
     }
     
     dom.closeCameraBtn.addEventListener('click', stopCamera);
-    dom.snapBtn.addEventListener('click', takePictureAndScan);
+    // Snap Button als "Stop" Button
+    dom.snapBtn.addEventListener('click', stopCamera);
 }
 
 async function handleParkNow() {
     const plate = dom.guestPlateInput.value.trim();
     if (!plate) {
         showMessage('guest-message', "Bitte erst Kennzeichen eingeben.", 'error');
-        
         dom.guestPlateInput.focus();
         dom.guestPlateInput.style.transition = "border 0.2s";
         dom.guestPlateInput.style.border = "2px solid var(--danger)";
@@ -122,7 +121,6 @@ function updateGuestStatusUI(elementId, status) {
 
 function setupGuestSmartBooking() {
     isSmartBookingInit = true;
-    
     dom.spotCards.forEach(card => {
         card.addEventListener('click', () => {
             dom.spotCards.forEach(c => c.classList.remove('selected'));
@@ -207,11 +205,13 @@ async function startCamera(mode) {
 
     try {
         dom.cameraOverlay.classList.remove('hidden');
-        dom.scanStatusText.textContent = "Bereit...";
+        dom.scanStatusText.textContent = "Suche Kennzeichen...";
         cameraStream = await navigator.mediaDevices.getUserMedia({ 
-            video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } } 
+            video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } 
         });
         dom.cameraVideo.srcObject = cameraStream;
+        scanningActive = true;
+        startScanningLoop();
     } catch (e) {
         console.error(e);
         alert("Kamera Fehler.");
@@ -220,11 +220,76 @@ async function startCamera(mode) {
 }
 
 function stopCamera() {
+    scanningActive = false;
     dom.cameraOverlay.classList.add('hidden');
     if (cameraStream) {
         cameraStream.getTracks().forEach(track => track.stop());
         cameraStream = null;
     }
+}
+
+// SCAN LOOP (LIVE ABGLEICH)
+async function startScanningLoop() {
+    const { createWorker } = Tesseract;
+    const worker = await createWorker('deu');
+    await worker.setParameters({ 
+        tessedit_pageseg_mode: '7',
+        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789' 
+    });
+
+    const canvas = dom.cameraCanvas;
+    const ctx = canvas.getContext('2d');
+    const video = dom.cameraVideo;
+
+    let consecutiveMatches = 0;
+    let lastResult = "";
+
+    const scanFrame = async () => {
+        if (!scanningActive || !video.videoWidth) return;
+
+        const sWidth = video.videoWidth * 0.8;
+        const sHeight = video.videoHeight * 0.15;
+        const sx = (video.videoWidth - sWidth) / 2;
+        const sy = (video.videoHeight * 0.45) - (sHeight / 2);
+
+        canvas.width = sWidth * 2;
+        canvas.height = sHeight * 2;
+        
+        ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, canvas.width, canvas.height);
+        preprocessImage(canvas);
+
+        try {
+            const { data: { text } } = await worker.recognize(canvas);
+            const detectedPlate = parseLicensePlate(text);
+
+            if (detectedPlate) {
+                dom.scanStatusText.textContent = `Gefunden: ${detectedPlate}`;
+                
+                if (detectedPlate === lastResult) {
+                    consecutiveMatches++;
+                } else {
+                    consecutiveMatches = 1;
+                    lastResult = detectedPlate;
+                }
+
+                if (consecutiveMatches >= 2) {
+                    if (currentInputTarget) currentInputTarget.value = detectedPlate;
+                    await worker.terminate();
+                    stopCamera();
+                    return; 
+                }
+            } else {
+                dom.scanStatusText.textContent = "Scanne...";
+                consecutiveMatches = 0;
+            }
+        } catch (e) {
+            console.log(e);
+        }
+
+        if (scanningActive) requestAnimationFrame(scanFrame);
+    };
+
+    requestAnimationFrame(scanFrame);
 }
 
 function preprocessImage(canvas) {
@@ -236,15 +301,12 @@ function preprocessImage(canvas) {
     for (let i = 0; i < data.length; i += 4) {
         totalBrightness += (data[i] + data[i+1] + data[i+2]) / 3;
     }
-    const avgBrightness = totalBrightness / (data.length / 4);
-    const threshold = avgBrightness * 0.65; 
+    const threshold = (totalBrightness / (data.length / 4)) * 0.6; 
 
     for (let i = 0; i < data.length; i += 4) {
         const gray = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
         const val = gray < threshold ? 0 : 255;
-        data[i] = val;
-        data[i + 1] = val;
-        data[i + 2] = val;
+        data[i] = val; data[i + 1] = val; data[i + 2] = val;
     }
     ctx.putImageData(imageData, 0, 0);
 }
@@ -253,8 +315,7 @@ function fixCharacterConfusion(str, isNumberPart) {
     if (!str) return "";
     let res = str;
     if (isNumberPart) {
-        res = res.replace(/O/g, '0').replace(/D/g, '0').replace(/I/g, '1').replace(/L/g, '1')
-                 .replace(/Z/g, '7').replace(/S/g, '5').replace(/B/g, '8').replace(/G/g, '6');
+        res = res.replace(/O/g, '0').replace(/D/g, '0').replace(/I/g, '1').replace(/Z/g, '7').replace(/S/g, '5').replace(/B/g, '8').replace(/G/g, '6');
     } else {
         res = res.replace(/0/g, 'O').replace(/1/g, 'I').replace(/8/g, 'B').replace(/5/g, 'S').replace(/4/g, 'A');
     }
@@ -263,85 +324,27 @@ function fixCharacterConfusion(str, isNumberPart) {
 
 function parseLicensePlate(text) {
     const raw = text.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    const match = raw.match(/([A-Z0-9]+?)([0-9]{1,4})$/);
+    const match = raw.match(/([A-Z0-9]+)([A-Z]{1,2})([0-9]{1,4})$/);
     
     if (match) {
-        const lettersPart = match[1];
-        const numberPart = match[2];
+        let prefixRaw = match[1];
+        let mid = match[2];
+        let num = match[3];
         
-        let city = "";
-        let mid = "";
-        
-        if (lettersPart.length === 5) {
-            city = lettersPart.substring(0, 3);
-            mid = lettersPart.substring(3);
-        } else if (lettersPart.length === 4) {
-            city = lettersPart.substring(0, 2);
-            mid = lettersPart.substring(2);
-        } else if (lettersPart.length === 3) {
-            city = lettersPart.substring(0, 1);
-            mid = lettersPart.substring(1);
-        } else if (lettersPart.length === 2) {
-            city = lettersPart.substring(0, 1);
-            mid = lettersPart.substring(1);
-        } else {
-            return null;
+        let city = prefixRaw;
+        if (prefixRaw.length > 3) {
+            city = prefixRaw.substring(prefixRaw.length - 3);
         }
         
         city = fixCharacterConfusion(city, false);
         mid = fixCharacterConfusion(mid, false);
-        const num = fixCharacterConfusion(numberPart, true);
+        num = fixCharacterConfusion(num, true);
         
-        return `${city}-${mid}-${num}`;
+        if (city.length >= 1) {
+            return `${city}-${mid}-${num}`;
+        }
     }
     return null;
-}
-
-async function takePictureAndScan() {
-    if (!cameraStream) return;
-    dom.scanStatusText.textContent = "Analysiere...";
-    dom.snapBtn.disabled = true;
-
-    const video = dom.cameraVideo;
-    const canvas = dom.cameraCanvas;
-    
-    const sWidth = video.videoWidth * 0.70;
-    const sHeight = video.videoHeight * 0.12; 
-    const sx = (video.videoWidth - sWidth) / 2;
-    const sy = (video.videoHeight * 0.45) - (sHeight / 2);
-
-    canvas.width = sWidth * 2;
-    canvas.height = sHeight * 2;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, canvas.width, canvas.height);
-    
-    preprocessImage(canvas);
-
-    try {
-        const { createWorker } = Tesseract;
-        const worker = await createWorker('deu');
-        
-        await worker.setParameters({ 
-            tessedit_pageseg_mode: '7',
-            tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÜ0123456789'
-        });
-        
-        const { data: { text } } = await worker.recognize(canvas);
-        await worker.terminate();
-
-        const result = parseLicensePlate(text);
-
-        if (result) {
-            if(currentInputTarget) currentInputTarget.value = result;
-            stopCamera();
-        } else {
-             dom.scanStatusText.textContent = `Nicht erkannt. (${text.trim()})`;
-        }
-    } catch (e) {
-        console.error(e);
-        alert("Fehler.");
-    }
-    dom.snapBtn.disabled = false;
 }
 
 function setupHoldAction(button, action) {

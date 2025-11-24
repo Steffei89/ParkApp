@@ -1,14 +1,14 @@
 import * as dom from '../dom.js';
-import { createBooking, subscribeToMyBookings, deleteBooking, subscribeToStatus, subscribeToReservationsForDate } from '../services/booking.js';
+import { createBooking, subscribeToMyBookings, deleteBooking, subscribeToStatus } from '../services/booking.js';
 import { createGuestLink } from '../services/invite.js';
 import { showMessage, navigateTo } from '../ui.js';
-import { getTodayDateString } from '../utils.js';
 import { setUnsubscriber, getState } from '../state.js';
 
 let selectedDate = new Date();
 let selectedTime = new Date();
 let durationMinutes = 120;
 let cameraStream = null;
+let scanningActive = false; // Steuert den Loop
 
 export function initDashboardView() {
     document.getElementById('book-btn').addEventListener('click', () => {
@@ -101,21 +101,25 @@ function setupSmartBookingUI() {
 function setupCameraUI() {
     dom.scanPlateBtn.addEventListener('click', startCamera);
     dom.closeCameraBtn.addEventListener('click', stopCamera);
-    dom.snapBtn.addEventListener('click', takePictureAndScan);
+    // Snap Button ist jetzt eher ein "Stop/Confirm" Button, da wir automatisch scannen
+    dom.snapBtn.addEventListener('click', stopCamera); 
 }
 
 async function startCamera() {
     try {
         dom.cameraOverlay.classList.remove('hidden');
-        dom.scanStatusText.textContent = "Kamera ausrichten...";
+        dom.scanStatusText.textContent = "Suche Kennzeichen...";
+        
+        // HD Stream anfordern
         cameraStream = await navigator.mediaDevices.getUserMedia({ 
-            video: { 
-                facingMode: 'environment',
-                width: { ideal: 1920 },
-                height: { ideal: 1080 }
-            } 
+            video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } 
         });
         dom.cameraVideo.srcObject = cameraStream;
+        
+        // Starte den Dauer-Scan Loop
+        scanningActive = true;
+        startScanningLoop();
+        
     } catch (e) {
         console.error(e);
         alert("Kamera Fehler.");
@@ -124,6 +128,7 @@ async function startCamera() {
 }
 
 function stopCamera() {
+    scanningActive = false; // Loop stoppen
     dom.cameraOverlay.classList.add('hidden');
     if (cameraStream) {
         cameraStream.getTracks().forEach(track => track.stop());
@@ -131,24 +136,97 @@ function stopCamera() {
     }
 }
 
+// --- NEUE CORE-SCAN LOGIK ---
+
+async function startScanningLoop() {
+    // Tesseract Worker einmalig initialisieren
+    const { createWorker } = Tesseract;
+    const worker = await createWorker('deu');
+    // Optimierte Parameter: Nur Großbuchstaben & Zahlen, Single Line
+    await worker.setParameters({ 
+        tessedit_pageseg_mode: '7',
+        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789' 
+    });
+
+    const canvas = dom.cameraCanvas;
+    const ctx = canvas.getContext('2d');
+    const video = dom.cameraVideo;
+
+    let consecutiveMatches = 0;
+    let lastResult = "";
+
+    const scanFrame = async () => {
+        if (!scanningActive || !video.videoWidth) return;
+
+        // 1. Bildausschnitt (Crop) vorbereiten
+        const sWidth = video.videoWidth * 0.8; // 80% Breite
+        const sHeight = video.videoHeight * 0.15; // 15% Höhe
+        const sx = (video.videoWidth - sWidth) / 2;
+        const sy = (video.videoHeight * 0.45) - (sHeight / 2);
+
+        canvas.width = sWidth * 2; // 2x Upscaling
+        canvas.height = sHeight * 2;
+        
+        ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, canvas.width, canvas.height);
+        preprocessImage(canvas); // Kontrast-Filter
+
+        try {
+            const { data: { text } } = await worker.recognize(canvas);
+            
+            // 2. Parsen & Validieren
+            const detectedPlate = parseLicensePlate(text);
+
+            if (detectedPlate) {
+                dom.scanStatusText.textContent = `Gefunden: ${detectedPlate}`;
+                
+                // 3. Stabilitäts-Check (Abgleich)
+                // Wenn wir 2x hintereinander das Gleiche (oder fast das Gleiche) sehen -> Treffer!
+                if (detectedPlate === lastResult) {
+                    consecutiveMatches++;
+                } else {
+                    consecutiveMatches = 1;
+                    lastResult = detectedPlate;
+                }
+
+                // Wenn stabil genug -> Übernehmen
+                if (consecutiveMatches >= 2) {
+                    dom.bookingPlate.value = detectedPlate;
+                    await worker.terminate();
+                    stopCamera();
+                    return; // Loop beenden
+                }
+            } else {
+                dom.scanStatusText.textContent = "Scanne...";
+                consecutiveMatches = 0;
+            }
+        } catch (e) {
+            console.log("OCR Frame Error", e);
+        }
+
+        // Nächsten Frame anfordern (wenn noch aktiv)
+        if (scanningActive) requestAnimationFrame(scanFrame);
+    };
+
+    // Ersten Frame starten
+    requestAnimationFrame(scanFrame);
+}
+
 function preprocessImage(canvas) {
     const ctx = canvas.getContext('2d');
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imageData.data;
     
+    // Adaptiver Threshold Filter
     let totalBrightness = 0;
     for (let i = 0; i < data.length; i += 4) {
         totalBrightness += (data[i] + data[i+1] + data[i+2]) / 3;
     }
-    const avgBrightness = totalBrightness / (data.length / 4);
-    const threshold = avgBrightness * 0.65; 
+    const threshold = (totalBrightness / (data.length / 4)) * 0.6; 
 
     for (let i = 0; i < data.length; i += 4) {
         const gray = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
         const val = gray < threshold ? 0 : 255;
-        data[i] = val;
-        data[i + 1] = val;
-        data[i + 2] = val;
+        data[i] = val; data[i + 1] = val; data[i + 2] = val;
     }
     ctx.putImageData(imageData, 0, 0);
 }
@@ -157,105 +235,48 @@ function fixCharacterConfusion(str, isNumberPart) {
     if (!str) return "";
     let res = str;
     if (isNumberPart) {
-        res = res.replace(/O/g, '0').replace(/D/g, '0').replace(/I/g, '1').replace(/L/g, '1')
-                 .replace(/Z/g, '7').replace(/S/g, '5').replace(/B/g, '8').replace(/G/g, '6');
+        res = res.replace(/O/g, '0').replace(/D/g, '0').replace(/I/g, '1').replace(/Z/g, '7').replace(/S/g, '5').replace(/B/g, '8').replace(/G/g, '6');
     } else {
         res = res.replace(/0/g, 'O').replace(/1/g, 'I').replace(/8/g, 'B').replace(/5/g, 'S').replace(/4/g, 'A');
     }
     return res;
 }
 
-// PARSER V4 (Robust against Blue Strip & Cutoff)
 function parseLicensePlate(text) {
-    // 1. Alles bereinigen
+    // Nur Alphanumerik
     const raw = text.toUpperCase().replace(/[^A-Z0-9]/g, '');
     
-    // 2. Wir suchen von hinten: Zuerst die Zahlen (Ende), dann die mittleren Buchstaben
-    // Regex: Irgendwelche Zeichen (Stadt+Müll) -> 1-2 Buchstaben -> 1-4 Zahlen -> Ende
-    const regex = /([A-Z0-9]+)([A-Z]{1,2})([0-9]{1,4})$/;
-    
-    const match = raw.match(regex);
+    // Wir suchen das Muster von hinten: [STADT] [MITTE] [ZAHLEN]
+    // Die Zahlen am Ende sind unser Anker (1-4 Ziffern)
+    const match = raw.match(/([A-Z0-9]+)([A-Z]{1,2})([0-9]{1,4})$/);
     
     if (match) {
-        let cityRaw = match[1]; // Hier steckt "D" + "BGL" drin
+        let prefixRaw = match[1]; // Kann "DBGL" oder "IBGL" sein
         let mid = match[2];
         let num = match[3];
         
-        // CLEANUP STADT:
-        // Deutsche Städte haben max 3 Buchstaben.
-        // Wenn wir also z.B. "DBGL" oder "IIRO" haben, nehmen wir nur die LETZTEN 1-3 Buchstaben.
-        // Das schneidet das führende "D" oder Fragmente automatisch ab.
-        
-        // Wir nehmen maximal die letzten 3 Zeichen
-        let city = cityRaw;
-        if (cityRaw.length > 3) {
-            city = cityRaw.substring(cityRaw.length - 3);
+        // Bereinigung des "D"-Problems (Abgleich)
+        // Deutsche Kennzeichen beginnen mit 1-3 Buchstaben.
+        // Wenn wir >3 Buchstaben haben, schneiden wir vorne ab.
+        let city = prefixRaw;
+        if (prefixRaw.length > 3) {
+            city = prefixRaw.substring(prefixRaw.length - 3); // Nimm nur die letzten 3
         }
-        // Wenn es immer noch unplausibel ist (z.B. Zahlen drin), fixen wir das
-        city = fixCharacterConfusion(city, false);
         
-        // Sicherheitscheck: Stadt muss min 1 Zeichen sein
-        if (city.length < 1) return null;
-
-        // Rest korrigieren
+        // Fix Typo Confusion
+        city = fixCharacterConfusion(city, false);
         mid = fixCharacterConfusion(mid, false);
         num = fixCharacterConfusion(num, true);
         
-        return `${city}-${mid}-${num}`;
+        // Validierung: Stadt muss mind. 1 Zeichen sein
+        if (city.length >= 1) {
+            return `${city}-${mid}-${num}`;
+        }
     }
-    
     return null;
 }
 
-async function takePictureAndScan() {
-    if (!cameraStream) return;
-    dom.scanStatusText.textContent = "Analysiere...";
-    dom.snapBtn.disabled = true;
-
-    const video = dom.cameraVideo;
-    const canvas = dom.cameraCanvas;
-    
-    // CROP: Wir gehen zurück auf 80% Breite (war 70%), um sicherzustellen,
-    // dass der erste Buchstabe auf jeden Fall drauf ist.
-    const sWidth = video.videoWidth * 0.80; 
-    const sHeight = video.videoHeight * 0.15;
-    const sx = (video.videoWidth - sWidth) / 2;
-    const sy = (video.videoHeight * 0.45) - (sHeight / 2);
-
-    canvas.width = sWidth * 2; // Upscaling
-    canvas.height = sHeight * 2;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, canvas.width, canvas.height);
-    
-    preprocessImage(canvas);
-
-    try {
-        const { createWorker } = Tesseract;
-        const worker = await createWorker('deu');
-        
-        await worker.setParameters({ 
-            tessedit_pageseg_mode: '7',
-            tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÜ0123456789' 
-        });
-        
-        const { data: { text } } = await worker.recognize(canvas);
-        await worker.terminate();
-
-        const result = parseLicensePlate(text);
-
-        if (result) {
-            dom.bookingPlate.value = result;
-            stopCamera();
-        } else {
-             dom.scanStatusText.textContent = `Nicht erkannt. (${text.trim()})`;
-        }
-    } catch (e) {
-        console.error(e);
-        alert("Fehler.");
-    }
-    dom.snapBtn.disabled = false;
-}
-
+// (Restliche UI-Helper Funktionen bleiben gleich wie vorher...)
 function setupHoldAction(button, action) {
     let interval; let timeout;
     const start = () => { action(); timeout = setTimeout(() => { interval = setInterval(() => { action(); }, 100); }, 400); };
