@@ -1,3 +1,5 @@
+// js/utils.js
+
 // Hilft uns, das aktuelle Datum für Formulare zu bekommen (YYYY-MM-DD)
 export function getTodayDateString() {
     const d = new Date();
@@ -32,9 +34,9 @@ export function formatDate(dateInput) {
     return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
 }
 
-// --- NEU: KENNZEICHEN LOGIK & DATENBANK ---
+// --- KENNZEICHEN LOGIK (PROFI VERSION) ---
 
-// Liste aller gültigen deutschen KFZ-Kürzel (Auszug der wichtigsten + Logik für alle)
+// Liste aller gültigen deutschen KFZ-Kürzel
 const VALID_CITIES = new Set([
     "A","AA","AB","ABG","ABI","AC","AE","AH","AIB","AIC","AK","ALF","AM","AN","ANA","ANG","ANK","AÖ","AP","APD","ARN","ART","AS","ASL","ASZ","AT","AU","AUR","AW","AZ",
     "B","BA","BAD","BAR","BB","BBG","BBL","BC","BCH","BD","BE","BED","BER","BF","BGD","BGL","BH","BI","BID","BIN","BIR","BIT","BIW","BK","BKS","BL","BLB","BLK","BM","BN","BNA","BO","BÖ","BOG","BOH","BOR","BOT","BP","BRA","BRB","BRG","BRK","BRL","BRV","BS","BSK","BT","BTF","BÜD","BÜS","BÜZ","BW","BWL","BYL","BZ",
@@ -62,83 +64,67 @@ const VALID_CITIES = new Set([
     "Z","ZE","ZEL","ZI","ZIG","ZP","ZR","ZW","ZZ"
 ]);
 
-// Hilfsfunktion: Korrigiert Buchstaben/Zahlen-Verwechslung
-function fixChar(char, expectNumber) {
-    if (expectNumber) {
-        return char.replace(/O/g, '0').replace(/I/g, '1').replace(/Z/g, '7').replace(/S/g, '5').replace(/B/g, '8').replace(/G/g, '6');
+// Hilfsfunktion: Korrigiert Buchstaben/Zahlen-Verwechslung je nach Position
+function fixOCRErrors(char, isNumberPosition) {
+    if (isNumberPosition) {
+        // Wir erwarten eine Zahl, haben aber einen Buchstaben -> Korrigieren
+        return char.replace(/O/g, '0')
+                   .replace(/D/g, '0')
+                   .replace(/Q/g, '0')
+                   .replace(/I/g, '1')
+                   .replace(/L/g, '1')
+                   .replace(/Z/g, '7')
+                   .replace(/S/g, '5')
+                   .replace(/B/g, '8')
+                   .replace(/G/g, '6');
     } else {
-        return char.replace(/0/g, 'O').replace(/1/g, 'I').replace(/8/g, 'B').replace(/5/g, 'S').replace(/4/g, 'A');
+        // Wir erwarten Buchstaben, haben aber Zahlen -> Korrigieren
+        return char.replace(/0/g, 'O')
+                   .replace(/1/g, 'I')
+                   .replace(/8/g, 'B')
+                   .replace(/5/g, 'S')
+                   .replace(/4/g, 'A')
+                   .replace(/6/g, 'G');
     }
 }
 
-// Die "KI"-Funktion
+// Die "KI"-Funktion zur Validierung
 export function validateLicensePlate(text) {
-    // 1. Grob reinigen
-    let raw = text.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    
-    // Wir probieren verschiedene Trennungen, beginnend von hinten (Zahlen)
-    // Mindestens 1 Zahl am Ende
-    const match = raw.match(/([A-Z0-9]+?)([0-9]{1,4})$/);
-    
-    if (!match) return { valid: false, text: text }; // Keine Zahlen am Ende -> Müll
+    if (!text || text.length < 3) return { valid: false, text: text };
 
-    const lettersPart = match[1]; // "BGLAB"
-    const numbersPart = match[2]; // "123"
+    // 1. Grob reinigen: Alles weg außer Buchstaben und Zahlen
+    let clean = text.toUpperCase().replace(/[^A-Z0-9]/g, '');
 
-    // Jetzt müssen wir den Buchstaben-Teil in STADT und ERKENNUNG trennen.
-    // Da wir die VALID_CITIES haben, können wir prüfen!
-    
-    // Strategie: Wir testen Längen für die Stadt (1, 2, 3)
-    let bestCity = "";
-    let bestMid = "";
-    let foundValidCity = false;
+    // Profi-Tipp: Deutsche Kennzeichen haben Struktur: [1-3 Buchstaben Stadt] - [1-2 Buchstaben] - [1-4 Zahlen]
+    // Wir versuchen, den String von HINTEN nach vorne zu zerlegen (Zahlen am Ende sind am sichersten zu erkennen)
+    const match = clean.match(/^([A-Z0-9]{1,3})([A-Z0-9]{1,2})([0-9]{1,4})$/);
 
-    // Teste Länge 3 (z.B. "BGL")
-    if (lettersPart.length >= 4) { // Min 1 für Mid übrig
-        const candidate = lettersPart.substring(lettersPart.length - 4, lettersPart.length - 1); // Letzte 3 vor dem Mid-Buchstaben? Nein, wir wissen nicht wo Mid anfängt.
-        // Besser: Wir probieren von vorne, wenn wir annehmen dass davor Müll steht.
-        // Aber wir haben ja "Reverse Matching" Logik.
-        // Wir probieren alle sinnvollen Splits des `lettersPart`.
-    }
+    if (match) {
+        // Rohdaten aufteilen
+        let rawCity = match[1];
+        let rawMiddle = match[2];
+        let rawNumbers = match[3];
 
-    // Wir iterieren durch mögliche Stadt-Längen am ENDE des Letter-Parts
-    // Beispiel lettersPart = "DBGLAB" (D = Müll, BGL = Stadt, AB = Mid)
-    // Wir wissen nicht, wie viel Müll davor ist.
-    
-    // Wir probieren alle möglichen Positionen für den Split zwischen Stadt und Mid
-    // Mid muss 1-2 Zeichen sein.
-    // Stadt muss in VALID_CITIES sein.
-    
-    // Wir gehen von hinten durch `lettersPart`
-    // AB (Mid 2) -> Rest davor ist Stadt-Kandidat
-    // A (Mid 1) -> Rest davor ist Stadt-Kandidat
-
-    const potentialMids = [];
-    if (lettersPart.length >= 2) potentialMids.push(lettersPart.substring(lettersPart.length - 2)); // Letzte 2
-    if (lettersPart.length >= 1) potentialMids.push(lettersPart.substring(lettersPart.length - 1)); // Letzte 1
-
-    for (const mid of potentialMids) {
-        // Der Rest davor könnte die Stadt sein
-        // Wir nehmen die 1-3 Zeichen VOR dem Mid
-        const remainingPrefix = lettersPart.substring(0, lettersPart.length - mid.length);
+        // 2. OCR-Fehler korrigieren (Logik anwenden)
+        // Teil 1 (Stadt) darf KEINE Zahlen enthalten
+        let cityCandidate = fixOCRErrors(rawCity, false);
         
-        // Versuche 1-3 Zeichen als Stadt zu extrahieren (von hinten gelesen)
-        for (let len = 1; len <= 3; len++) {
-            if (remainingPrefix.length >= len) {
-                const cityCandidate = remainingPrefix.substring(remainingPrefix.length - len);
-                // Fix Confusions (0 -> O) bevor wir prüfen
-                const cityFixed = fixChar(cityCandidate, false);
-                
-                if (VALID_CITIES.has(cityFixed)) {
-                    // TREFFER! Eine gültige Stadt gefunden.
-                    return {
-                        valid: true,
-                        formatted: `${cityFixed}-${fixChar(mid, false)}-${fixChar(numbersPart, true)}`
-                    };
-                }
-            }
+        // Teil 2 (Mitte) darf KEINE Zahlen enthalten
+        let middleCandidate = fixOCRErrors(rawMiddle, false);
+        
+        // Teil 3 (Ende) darf KEINE Buchstaben enthalten
+        let numberCandidate = fixOCRErrors(rawNumbers, true);
+
+        // 3. Ist die Stadt gültig?
+        if (VALID_CITIES.has(cityCandidate)) {
+            return {
+                valid: true,
+                // Hier bauen wir das gewünschte Format mit Trennern: BGD-ML-22
+                formatted: `${cityCandidate}-${middleCandidate}-${numberCandidate}`,
+                raw: clean
+            };
         }
     }
 
-    return { valid: false, text: text };
+    return { valid: false, text: clean };
 }

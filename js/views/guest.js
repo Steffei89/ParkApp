@@ -1,3 +1,4 @@
+// js/views/guest.js
 import * as dom from '../dom.js';
 import { createBooking, deleteBooking, subscribeToStatus } from '../services/booking.js';
 import { showMessage } from '../ui.js';
@@ -13,6 +14,7 @@ let isSmartBookingInit = false;
 let currentInputTarget = null; 
 let scanningActive = false;
 let lastResultCache = "";
+let scanBuffer = []; // Voting Buffer
 
 export function initGuestView(hostData) {
     dom.guestHostName.textContent = hostData.hostName;
@@ -53,7 +55,7 @@ function manualSnap() {
         stopCamera();
     } else {
         const oldText = dom.scanStatusText.textContent;
-        dom.scanStatusText.textContent = "Nichts erkannt! Bitte ruhig halten.";
+        dom.scanStatusText.textContent = "Warte auf sichere Erkennung...";
         dom.scanStatusText.style.color = "var(--danger)";
         setTimeout(() => {
             dom.scanStatusText.textContent = oldText;
@@ -195,10 +197,11 @@ async function startCamera(mode) {
 
     try {
         dom.cameraOverlay.classList.remove('hidden');
-        dom.scanStatusText.textContent = "Suche Kennzeichen...";
-        dom.scanOverlayText.textContent = "Suche...";
+        dom.scanStatusText.textContent = "Kamera wird gestartet...";
+        dom.scanOverlayText.textContent = "";
         dom.scanOverlayText.classList.remove('valid');
         lastResultCache = "";
+        scanBuffer = [];
 
         cameraStream = await navigator.mediaDevices.getUserMedia({ 
             video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } 
@@ -228,9 +231,10 @@ function stopCamera() {
 async function startScanningLoop() {
     const { createWorker } = Tesseract;
     const worker = await createWorker('deu');
+    // Whitelist auch hier aktivieren!
     await worker.setParameters({ 
         tessedit_pageseg_mode: '7',
-        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÜ0123456789- ' 
+        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÜ0123456789' 
     });
 
     const canvas = dom.cameraCanvas;
@@ -238,41 +242,57 @@ async function startScanningLoop() {
     const video = dom.cameraVideo;
 
     const scanFrame = async () => {
-        if (!scanningActive) return;
+        if (!scanningActive) {
+            await worker.terminate();
+            return;
+        }
 
         if (video.readyState === video.HAVE_ENOUGH_DATA) {
-            const sWidth = video.videoWidth * 0.80;
+            const sWidth = video.videoWidth * 0.70;
             const sHeight = video.videoHeight * 0.15;
             const sx = (video.videoWidth - sWidth) / 2;
             const sy = (video.videoHeight * 0.45) - (sHeight / 2);
 
-            canvas.width = sWidth * 2;
-            canvas.height = sHeight * 2;
+            canvas.width = sWidth;
+            canvas.height = sHeight;
             ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, canvas.width, canvas.height);
             preprocessImage(canvas);
 
             try {
-                const { data: { text } } = await worker.recognize(canvas);
-                const check = validateLicensePlate(text);
-                const raw = text.replace(/[^A-Z0-9]/g, '');
+                const { data: { text, confidence } } = await worker.recognize(canvas);
+                
+                if (confidence > 60) {
+                    const check = validateLicensePlate(text);
+                    const raw = text.replace(/[^A-Z0-9]/g, '');
 
-                if (check.valid) {
-                    dom.scanOverlayText.textContent = check.formatted;
-                    dom.scanOverlayText.classList.add('valid');
-                    dom.scanStatusText.textContent = "Gefunden! Drücke Auslöser.";
-                    lastResultCache = check.formatted;
-                } else {
-                    dom.scanOverlayText.classList.remove('valid');
-                    if (raw.length > 2) {
-                        dom.scanOverlayText.textContent = raw;
-                        dom.scanStatusText.textContent = "Scanne...";
-                        lastResultCache = raw; 
+                    if (check.valid) {
+                        scanBuffer.push(check.formatted);
+                        if (scanBuffer.length > 5) scanBuffer.shift();
+
+                        const counts = {};
+                        let maxCount = 0;
+                        let winner = null;
+
+                        scanBuffer.forEach(plate => {
+                            counts[plate] = (counts[plate] || 0) + 1;
+                            if (counts[plate] > maxCount) {
+                                maxCount = counts[plate];
+                                winner = plate;
+                            }
+                        });
+
+                        if (maxCount >= 3) {
+                            dom.scanOverlayText.textContent = winner;
+                            dom.scanOverlayText.classList.add('valid');
+                            dom.scanStatusText.textContent = "Gefunden! Auslöser drücken.";
+                            lastResultCache = winner;
+                        }
                     } else {
-                        dom.scanOverlayText.textContent = "Suche...";
+                        if (raw.length > 2) dom.scanOverlayText.textContent = raw + "?";
                     }
                 }
             } catch (e) {
-                console.log(e);
+                // OCR Fehler ignorieren
             }
         }
 
@@ -286,14 +306,11 @@ function preprocessImage(canvas) {
     const ctx = canvas.getContext('2d');
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imageData.data;
-    let totalBrightness = 0;
-    for (let i = 0; i < data.length; i += 4) {
-        totalBrightness += (data[i] + data[i+1] + data[i+2]) / 3;
-    }
-    const threshold = (totalBrightness / (data.length / 4)) * 0.6; 
+    
+    // Binarisierung: Hartes Schwarz-Weiß für bessere Lesbarkeit
     for (let i = 0; i < data.length; i += 4) {
         const gray = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
-        const val = gray < threshold ? 0 : 255;
+        const val = gray > 110 ? 255 : 0;
         data[i] = val; data[i + 1] = val; data[i + 2] = val;
     }
     ctx.putImageData(imageData, 0, 0);

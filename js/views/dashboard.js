@@ -1,3 +1,4 @@
+// js/views/dashboard.js
 import * as dom from '../dom.js';
 import { createBooking, subscribeToMyBookings, deleteBooking, subscribeToStatus, subscribeToReservationsForDate } from '../services/booking.js';
 import { createGuestLink } from '../services/invite.js';
@@ -11,8 +12,9 @@ let durationMinutes = 120;
 let cameraStream = null;
 let scanningActive = false;
 let lastValidPlate = ""; 
-// Wir nutzen eine kleine History für das Voting
-let scanHistory = [];
+
+// Voting-Puffer: Hier speichern wir die letzten Ergebnisse
+let scanBuffer = [];
 
 export function initDashboardView() {
     document.getElementById('book-btn').addEventListener('click', () => { resetBookingForm(); navigateTo(dom.bookingSection); });
@@ -28,8 +30,7 @@ export function initDashboardView() {
     setupCameraUI();
 }
 
-// (ResetBookingForm & SmartBookingUI bleiben unverändert - der Kürze halber hier nur angedeutet, bitte den vorherigen Code nutzen falls du ihn nicht mehr hast. Aber Fokus ist Scanner:)
-function resetBookingForm() { /* Wie zuvor */ 
+function resetBookingForm() {
     selectedDate = new Date();
     updateDateTabsUI('today');
     selectedTime = new Date();
@@ -39,6 +40,7 @@ function resetBookingForm() { /* Wie zuvor */
     updateDurationUI();
     updateTimeDisplay();
 }
+
 function setupSmartBookingUI() {
     dom.spotCards.forEach(card => {
         card.addEventListener('click', () => {
@@ -47,8 +49,6 @@ function setupSmartBookingUI() {
             dom.bookingSpot.value = card.dataset.value;
         });
     });
-    // ... Restliche UI Logic von vorhin (Datum, Zeit etc.)
-    // Ich füge sie hier kompakt ein damit die Datei vollständig ist:
     const tabToday = document.getElementById('date-tab-today');
     const tabTomorrow = document.getElementById('date-tab-tomorrow');
     const tabPicker = document.getElementById('date-tab-picker');
@@ -84,7 +84,7 @@ function setupSmartBookingUI() {
     });
 }
 
-// --- KAMERA LOGIK UPDATE ---
+// --- KAMERA LOGIK (PROFI UPGRADE) ---
 function setupCameraUI() {
     dom.scanPlateBtn.addEventListener('click', startCamera);
     dom.closeCameraBtn.addEventListener('click', stopCamera);
@@ -96,7 +96,7 @@ function manualSnap() {
         dom.bookingPlate.value = lastValidPlate;
         stopCamera();
     } else {
-        dom.scanStatusText.textContent = "Warte auf Erkennung...";
+        dom.scanStatusText.textContent = "Warte auf sichere Erkennung...";
         dom.scanStatusText.style.color = "#ff6b6b";
         setTimeout(() => { dom.scanStatusText.style.color = "white"; }, 1500);
     }
@@ -105,18 +105,17 @@ function manualSnap() {
 async function startCamera() {
     try {
         dom.cameraOverlay.classList.remove('hidden');
-        dom.scanStatusText.textContent = "Kamera startet...";
-        dom.scanOverlayText.textContent = "Suche...";
+        dom.scanStatusText.textContent = "Kamera wird gestartet...";
+        dom.scanOverlayText.textContent = "";
         dom.scanOverlayText.classList.remove('valid');
         lastValidPlate = "";
-        scanHistory = [];
+        scanBuffer = []; // Reset Puffer
 
         cameraStream = await navigator.mediaDevices.getUserMedia({ 
             video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } 
         });
         dom.cameraVideo.srcObject = cameraStream;
         
-        // WICHTIG: Explizites Play und Event Listener
         dom.cameraVideo.onloadedmetadata = () => {
             dom.cameraVideo.play();
         };
@@ -141,10 +140,13 @@ function stopCamera() {
 
 async function startScanningLoop() {
     const { createWorker } = Tesseract;
-    const worker = await createWorker('deu');
+    // Wir laden 'deu', damit Umlaute besser erkannt werden können
+    const worker = await createWorker('deu'); 
+    
+    // Whitelist: Nur diese Zeichen zulassen (erhöht Präzision extrem!)
     await worker.setParameters({ 
-        tessedit_pageseg_mode: '7',
-        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÜ0123456789- ' 
+        tessedit_pageseg_mode: '7', // Modus für "eine Textzeile"
+        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÜ0123456789' 
     });
 
     const canvas = dom.cameraCanvas;
@@ -152,52 +154,68 @@ async function startScanningLoop() {
     const video = dom.cameraVideo;
 
     const scanFrame = async () => {
-        if (!scanningActive) return;
+        if (!scanningActive) {
+            await worker.terminate();
+            return;
+        }
 
-        // Warten bis Video bereit ist
         if (video.readyState === video.HAVE_ENOUGH_DATA) {
             
-            // CROP
-            const sWidth = video.videoWidth * 0.80;
-            const sHeight = video.videoHeight * 0.15;
+            // CROP: Wir schneiden nur den relevanten Bereich aus (Mitte)
+            // Kleineres Bild = Schnellere Erkennung
+            const sWidth = video.videoWidth * 0.70; // 70% der Breite
+            const sHeight = video.videoHeight * 0.15; // 15% der Höhe
             const sx = (video.videoWidth - sWidth) / 2;
             const sy = (video.videoHeight * 0.45) - (sHeight / 2);
 
-            canvas.width = sWidth * 2;
-            canvas.height = sHeight * 2;
+            canvas.width = sWidth;
+            canvas.height = sHeight;
             ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, canvas.width, canvas.height);
+            
+            // Bildkontrast erhöhen (Schwarz-Weiß machen)
             preprocessImage(canvas);
 
             try {
-                const { data: { text } } = await worker.recognize(canvas);
-                const check = validateLicensePlate(text);
+                const { data: { text, confidence } } = await worker.recognize(canvas);
                 
-                // RAW Text für Feedback (Bereinigt)
-                const raw = text.replace(/[^A-Z0-9]/g, '');
+                // Wir nehmen nur Ergebnisse mit >60% Sicherheit
+                if (confidence > 60) {
+                    const check = validateLicensePlate(text);
+                    const raw = text.replace(/[^A-Z0-9]/g, '');
 
-                if (check.valid) {
-                    // GRÜN
-                    dom.scanOverlayText.textContent = check.formatted;
-                    dom.scanOverlayText.classList.add('valid');
-                    dom.scanStatusText.textContent = "Gefunden! Drücke den Auslöser.";
-                    lastValidPlate = check.formatted;
-                    
-                    // Optional: Voting hier einbauen wenn nötig, aber für Live-Feedback besser direkt zeigen
-                } else {
-                    // WEISS (Vorschau was er sieht)
-                    dom.scanOverlayText.classList.remove('valid');
-                    if (raw.length > 2) {
-                        dom.scanOverlayText.textContent = raw; // Zeige auch "falsche" Erkennungen an!
-                        dom.scanStatusText.textContent = "Scanne...";
-                        // Wir merken uns auch das "falsche" Ergebnis, falls der User trotzdem drücken will
-                        lastValidPlate = raw; 
+                    if (check.valid) {
+                        // === VOTING SYSTEM ===
+                        // Wir nehmen das Ergebnis nicht sofort, sondern sammeln es
+                        scanBuffer.push(check.formatted);
+                        if (scanBuffer.length > 5) scanBuffer.shift(); // Nur die letzten 5 merken
+
+                        // Zählen, welches Ergebnis am häufigsten vorkommt
+                        const counts = {};
+                        let maxCount = 0;
+                        let winner = null;
+
+                        scanBuffer.forEach(plate => {
+                            counts[plate] = (counts[plate] || 0) + 1;
+                            if (counts[plate] > maxCount) {
+                                maxCount = counts[plate];
+                                winner = plate;
+                            }
+                        });
+
+                        // Wenn ein Kennzeichen 3x bestätigt wurde -> TREFFER
+                        if (maxCount >= 3) {
+                            dom.scanOverlayText.textContent = winner;
+                            dom.scanOverlayText.classList.add('valid');
+                            dom.scanStatusText.textContent = "Gefunden! Auslöser drücken.";
+                            lastValidPlate = winner;
+                        }
                     } else {
-                        dom.scanOverlayText.textContent = "Suche...";
+                        // Feedback was er gerade sieht (auch wenn falsch)
+                        if (raw.length > 2) dom.scanOverlayText.textContent = raw + "?";
                     }
                 }
-
             } catch (e) {
-                // OCR Fehler ignorieren im Loop
+                // OCR Fehler ignorieren
             }
         }
 
@@ -207,26 +225,23 @@ async function startScanningLoop() {
     requestAnimationFrame(scanFrame);
 }
 
+// Bildverbesserung: Macht das Bild Schwarz-Weiß (Binarisierung)
 function preprocessImage(canvas) {
     const ctx = canvas.getContext('2d');
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imageData.data;
     
-    let totalBrightness = 0;
-    for (let i = 0; i < data.length; i += 4) {
-        totalBrightness += (data[i] + data[i+1] + data[i+2]) / 3;
-    }
-    const threshold = (totalBrightness / (data.length / 4)) * 0.6; 
-
+    // Thresholding: Alles was hellgrau ist wird weiß, alles dunkle schwarz
     for (let i = 0; i < data.length; i += 4) {
         const gray = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
-        const val = gray < threshold ? 0 : 255;
+        // Schwellenwert 110 (kann man bei Bedarf anpassen, 100-128 ist gut)
+        const val = gray > 110 ? 255 : 0;
         data[i] = val; data[i + 1] = val; data[i + 2] = val;
     }
     ctx.putImageData(imageData, 0, 0);
 }
 
-// UI Helpers (Date/Time) ...
+// UI Helpers
 function setupHoldAction(button, action) {
     let interval; let timeout;
     const start = () => { action(); timeout = setTimeout(() => { interval = setInterval(() => { action(); }, 100); }, 400); };
@@ -257,9 +272,7 @@ function updateTimeDisplay() {
     const endMM = String(combinedEnd.getMinutes()).padStart(2, '0');
     document.getElementById('display-end-time').textContent = `${endHH}:${endMM}`;
 }
-// ... Restliche Funktionen loadMyBookings, initStatusWidget, initOverviewView, renderTimeline ...
-// (Bitte den Code aus der vorherigen Antwort für diese Standard-Funktionen übernehmen, sie haben sich nicht geändert)
-// Um den Platz zu sparen, habe ich sie hier gekürzt, aber sie müssen in der Datei bleiben!
+
 export function loadMyBookings() {
     const unsub = subscribeToMyBookings((bookings) => {
         dom.myBookingsList.innerHTML = '';
