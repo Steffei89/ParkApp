@@ -1,22 +1,25 @@
-// Service Worker für Offline-Support registrieren
+// --- WICHTIG: ALTE SERVICE WORKER LÖSCHEN (Cache-Reset) ---
 if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js')
-      .then(() => console.log('Service Worker OK'))
-      .catch((err) => console.error('SW Fehler:', err));
+    navigator.serviceWorker.getRegistrations().then(function(registrations) {
+        for(let registration of registrations) {
+            registration.unregister();
+        }
+    });
 }
 
+// Normale Imports
 import { auth, onAuthStateChanged, signInAnonymously } from './firebase.js';
 import * as dom from './dom.js';
 import { setCurrentUser, clearAllUnsubscribers } from './state.js';
-import { navigateTo, updateUserInfoUI, showMessage } from './ui.js';
+import { navigateTo, updateUserInfoUI } from './ui.js';
 import { handleLogin, handleRegister, handleLogout } from './services/auth.js';
 import { validateInvite } from './services/invite.js';
-// WICHTIG: initDashboardView kümmert sich um alles Dashboard-relevante
 import { initDashboardView, loadMyBookings, initStatusWidget } from './views/dashboard.js';
 import { initGuestView } from './views/guest.js';
+// WICHTIG: Hier wird die Admin-View importiert. Durch den Cache-Reset oben sollte das jetzt klappen.
 import { initAdminView, loadAdminData } from './views/admin.js';
 
-// --- HILFSFUNKTION: HAUS-CODE PRÜFEN ---
+// --- HELPER ---
 function checkInviteCode() {
     const codeInput = document.getElementById('register-invite-code');
     const wrapper = document.getElementById('partei-selection-wrapper');
@@ -29,7 +32,7 @@ function checkInviteCode() {
     }
 }
 
-// --- INITIALISIERUNG THEME ---
+// --- THEME ---
 function initTheme() {
     const savedTheme = localStorage.getItem('theme');
     const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -43,7 +46,7 @@ function initTheme() {
 }
 initTheme();
 
-// --- GLOBALE LISTENER ---
+// --- EVENT LISTENER ---
 if(dom.loginForm) dom.loginForm.querySelector('#login-btn').addEventListener('click', handleLogin);
 if(dom.registerForm) dom.registerForm.querySelector('#register-btn').addEventListener('click', handleRegister);
 if(document.getElementById('logout-btn')) document.getElementById('logout-btn').addEventListener('click', handleLogout);
@@ -87,7 +90,7 @@ if (adminBtn) {
     });
 }
 
-// --- STARTUP LOGIK ---
+// --- STARTUP ---
 const urlParams = new URLSearchParams(window.location.search);
 const inviteId = urlParams.get('invite');
 let isGuestSession = !!inviteId;
@@ -127,9 +130,9 @@ onAuthStateChanged(auth, async (user) => {
                 setCurrentUser(appUser);
                 updateUserInfoUI(appUser);
                 
-                initDashboardView(); // Startet Button Listener
-                loadMyBookings();    // Startet "Meine Buchungen" Liste
-                initStatusWidget();  // Startet Ampel
+                initDashboardView();
+                loadMyBookings();
+                initStatusWidget();
                 
                 navigateTo(dom.mainMenu);
             } else {

@@ -12,32 +12,25 @@ let cameraStream = null;
 let isSmartBookingInit = false; 
 let currentInputTarget = null; 
 let scanningActive = false;
-let lastValidPlate = "";
+let lastResultCache = "";
 
 export function initGuestView(hostData) {
     dom.guestHostName.textContent = hostData.hostName;
-    
     const unsub = subscribeToStatus((status) => {
         updateGuestStatusUI('guest-status-p1', status.P1);
         updateGuestStatusUI('guest-status-p2', status.P2);
     });
-    
     dom.guestParkNowBtn.addEventListener('click', handleParkNow);
     dom.guestCheckoutBtn.addEventListener('click', handleCheckout);
-
     dom.guestReserveBtn.addEventListener('click', () => {
         if(!isSmartBookingInit) setupGuestSmartBooking();
         resetBookingForm();
-        
         if(dom.bookingPlate) dom.bookingPlate.placeholder = "Kennzeichen (Pflicht)";
-        
         if(dom.guestPlateInput.value.trim()) {
             dom.bookingPlate.value = dom.guestPlateInput.value.trim();
         }
-
         document.getElementById('bookingSection').style.display = 'block';
         document.getElementById('guestSection').style.display = 'none';
-        
         const backBtn = document.getElementById('back-to-menu-btn-booking');
         const newBackBtn = backBtn.cloneNode(true);
         backBtn.parentNode.replaceChild(newBackBtn, backBtn);
@@ -50,19 +43,22 @@ export function initGuestView(hostData) {
     if(dom.guestScanBtn) {
         dom.guestScanBtn.addEventListener('click', () => startCamera('guest'));
     }
-    
     dom.closeCameraBtn.addEventListener('click', stopCamera);
     dom.snapBtn.addEventListener('click', manualSnap);
 }
 
 function manualSnap() {
-    if (lastValidPlate) {
-        if (currentInputTarget) currentInputTarget.value = lastValidPlate;
+    if (lastResultCache && lastResultCache.length > 3) {
+        if(currentInputTarget) currentInputTarget.value = lastResultCache;
         stopCamera();
     } else {
-        dom.scanStatusText.textContent = "Nichts erkannt. Halte ruhig!";
-        dom.scanStatusText.style.color = "#ff6b6b";
-        setTimeout(() => dom.scanStatusText.style.color = "white", 1500);
+        const oldText = dom.scanStatusText.textContent;
+        dom.scanStatusText.textContent = "Nichts erkannt! Bitte ruhig halten.";
+        dom.scanStatusText.style.color = "var(--danger)";
+        setTimeout(() => {
+            dom.scanStatusText.textContent = oldText;
+            dom.scanStatusText.style.color = "white";
+        }, 1500);
     }
 }
 
@@ -76,20 +72,14 @@ async function handleParkNow() {
         setTimeout(() => dom.guestPlateInput.style.border = "none", 2000);
         return;
     }
-
     if(!confirm(`Jetzt Parkplatz für ca. ${DEFAULT_PARKING_DURATION} Stunden buchen?`)) return;
-
     dom.guestParkNowBtn.disabled = true;
     dom.guestParkNowBtn.textContent = "Buche...";
-
     const now = new Date();
     const end = new Date(now.getTime() + DEFAULT_PARKING_DURATION * 60 * 60 * 1000); 
-
     const result = await createBooking(now.toISOString(), end.toISOString(), 'any', plate, 'guest-message');
-
     dom.guestParkNowBtn.disabled = false;
     dom.guestParkNowBtn.textContent = "JETZT PARKEN";
-
     if (result.success) {
         currentGuestBookingId = result.bookingId;
         showActiveTicket(result.spot, now);
@@ -134,7 +124,6 @@ function updateGuestStatusUI(elementId, status) {
 
 function setupGuestSmartBooking() {
     isSmartBookingInit = true;
-    
     dom.spotCards.forEach(card => {
         card.addEventListener('click', () => {
             dom.spotCards.forEach(c => c.classList.remove('selected'));
@@ -142,22 +131,18 @@ function setupGuestSmartBooking() {
             dom.bookingSpot.value = card.dataset.value;
         });
     });
-
     const tabToday = document.getElementById('date-tab-today');
     const tabTomorrow = document.getElementById('date-tab-tomorrow');
     const tabPicker = document.getElementById('date-tab-picker');
     const picker = document.getElementById('hidden-date-picker');
-
     tabToday.onclick = () => { selectedDate = new Date(); updateDateTabsUI('today'); updateTimeDisplay(); };
     tabTomorrow.onclick = () => { selectedDate = new Date(); selectedDate.setDate(selectedDate.getDate() + 1); updateDateTabsUI('tomorrow'); updateTimeDisplay(); };
     tabPicker.onclick = () => picker.showPicker();
     picker.onchange = () => { if(picker.value) { selectedDate = new Date(picker.value); updateDateTabsUI('picker'); updateTimeDisplay(); } };
-
     document.getElementById('btn-set-now').onclick = () => { selectedTime = new Date(); updateTimeDisplay(); };
     const changeTime = (minutes) => { selectedTime.setMinutes(selectedTime.getMinutes() + minutes); updateTimeDisplay(); };
     setupHoldAction(document.getElementById('time-minus'), () => changeTime(-15));
     setupHoldAction(document.getElementById('time-plus'), () => changeTime(15));
-
     dom.durationChips.forEach(chip => {
         chip.addEventListener('click', () => {
             durationMinutes = parseInt(chip.dataset.min);
@@ -165,14 +150,11 @@ function setupGuestSmartBooking() {
             updateTimeDisplay();
         });
     });
-
     dom.bookSubmitBtn.addEventListener('click', async () => {
         const finalStart = new Date(selectedDate);
         finalStart.setHours(selectedTime.getHours(), selectedTime.getMinutes(), 0, 0);
         const finalEnd = new Date(finalStart.getTime() + durationMinutes * 60000);
-        
         const plate = dom.bookingPlate.value.trim(); 
-
         if (!plate) {
             showMessage('booking-error', 'Bitte Kennzeichen eingeben (Pflicht).', 'error');
             dom.bookingPlate.focus();
@@ -181,14 +163,9 @@ function setupGuestSmartBooking() {
             setTimeout(() => dom.bookingPlate.style.border = "none", 2000);
             return;
         }
-
-        dom.bookSubmitBtn.disabled = true;
-        dom.bookSubmitBtn.textContent = "Buche...";
-
+        dom.bookSubmitBtn.disabled = true; dom.bookSubmitBtn.textContent = "Buche...";
         const result = await createBooking(finalStart.toISOString(), finalEnd.toISOString(), dom.bookingSpot.value, plate, 'booking-error');
-        dom.bookSubmitBtn.disabled = false;
-        dom.bookSubmitBtn.textContent = "FERTIG";
-
+        dom.bookSubmitBtn.disabled = false; dom.bookSubmitBtn.textContent = "FERTIG";
         if (result.success) {
             document.getElementById('bookingSection').style.display = 'none';
             document.getElementById('guestSection').style.display = 'block';
@@ -196,7 +173,6 @@ function setupGuestSmartBooking() {
             showActiveTicket(result.spot, finalStart);
         }
     });
-    
     if(dom.scanPlateBtn) {
         dom.scanPlateBtn.addEventListener('click', () => startCamera('booking'));
     }
@@ -220,14 +196,17 @@ async function startCamera(mode) {
     try {
         dom.cameraOverlay.classList.remove('hidden');
         dom.scanStatusText.textContent = "Suche Kennzeichen...";
-        dom.scanOverlayText.textContent = "Kennzeichen hier reinhalten";
-        dom.scanOverlayText.style.color = "white";
-        lastValidPlate = "";
+        dom.scanOverlayText.textContent = "Suche...";
+        dom.scanOverlayText.classList.remove('valid');
+        lastResultCache = "";
 
         cameraStream = await navigator.mediaDevices.getUserMedia({ 
-            video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } } 
+            video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } 
         });
         dom.cameraVideo.srcObject = cameraStream;
+        dom.cameraVideo.onloadedmetadata = () => {
+            dom.cameraVideo.play();
+        };
         scanningActive = true;
         startScanningLoop();
     } catch (e) {
@@ -258,57 +237,43 @@ async function startScanningLoop() {
     const ctx = canvas.getContext('2d');
     const video = dom.cameraVideo;
 
-    let consecutiveMatches = 0;
-    let lastResult = "";
-
     const scanFrame = async () => {
-        if (!scanningActive || !video.videoWidth) return;
+        if (!scanningActive) return;
 
-        const sWidth = video.videoWidth * 0.80;
-        const sHeight = video.videoHeight * 0.15;
-        const sx = (video.videoWidth - sWidth) / 2;
-        const sy = (video.videoHeight * 0.45) - (sHeight / 2);
+        if (video.readyState === video.HAVE_ENOUGH_DATA) {
+            const sWidth = video.videoWidth * 0.80;
+            const sHeight = video.videoHeight * 0.15;
+            const sx = (video.videoWidth - sWidth) / 2;
+            const sy = (video.videoHeight * 0.45) - (sHeight / 2);
 
-        canvas.width = sWidth * 2;
-        canvas.height = sHeight * 2;
-        ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, canvas.width, canvas.height);
-        preprocessImage(canvas);
+            canvas.width = sWidth * 2;
+            canvas.height = sHeight * 2;
+            ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, canvas.width, canvas.height);
+            preprocessImage(canvas);
 
-        try {
-            const { data: { text } } = await worker.recognize(canvas);
-            const check = validateLicensePlate(text);
+            try {
+                const { data: { text } } = await worker.recognize(canvas);
+                const check = validateLicensePlate(text);
+                const raw = text.replace(/[^A-Z0-9]/g, '');
 
-            if (check.valid) {
-                dom.scanOverlayText.textContent = check.formatted;
-                dom.scanOverlayText.style.color = "#2ecc71";
-                dom.scanOverlayText.style.fontWeight = "800";
-                dom.scanOverlayText.style.fontSize = "1.2rem";
-                
-                dom.scanStatusText.textContent = "Gefunden! Drücken zum Übernehmen.";
-                
-                lastValidPlate = check.formatted; 
-
-                if (check.formatted === lastResult) {
-                    consecutiveMatches++;
+                if (check.valid) {
+                    dom.scanOverlayText.textContent = check.formatted;
+                    dom.scanOverlayText.classList.add('valid');
+                    dom.scanStatusText.textContent = "Gefunden! Drücke Auslöser.";
+                    lastResultCache = check.formatted;
                 } else {
-                    consecutiveMatches = 1;
-                    lastResult = check.formatted;
+                    dom.scanOverlayText.classList.remove('valid');
+                    if (raw.length > 2) {
+                        dom.scanOverlayText.textContent = raw;
+                        dom.scanStatusText.textContent = "Scanne...";
+                        lastResultCache = raw; 
+                    } else {
+                        dom.scanOverlayText.textContent = "Suche...";
+                    }
                 }
-
-                if (consecutiveMatches >= 3) {
-                    if(currentInputTarget) currentInputTarget.value = check.formatted;
-                    await worker.terminate();
-                    stopCamera();
-                    return;
-                }
-            } else {
-                dom.scanOverlayText.textContent = "Suche...";
-                dom.scanOverlayText.style.color = "rgba(255,255,255,0.7)";
-                dom.scanOverlayText.style.fontSize = "0.9rem";
-                consecutiveMatches = 0;
+            } catch (e) {
+                console.log(e);
             }
-        } catch (e) {
-            console.log(e);
         }
 
         if (scanningActive) requestAnimationFrame(scanFrame);
@@ -321,13 +286,11 @@ function preprocessImage(canvas) {
     const ctx = canvas.getContext('2d');
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imageData.data;
-    
     let totalBrightness = 0;
     for (let i = 0; i < data.length; i += 4) {
         totalBrightness += (data[i] + data[i+1] + data[i+2]) / 3;
     }
     const threshold = (totalBrightness / (data.length / 4)) * 0.6; 
-
     for (let i = 0; i < data.length; i += 4) {
         const gray = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
         const val = gray < threshold ? 0 : 255;
