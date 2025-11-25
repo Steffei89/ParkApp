@@ -1,14 +1,15 @@
 import * as dom from '../dom.js';
-import { createBooking, subscribeToMyBookings, deleteBooking, subscribeToStatus } from '../services/booking.js';
+import { createBooking, subscribeToMyBookings, deleteBooking, subscribeToStatus, subscribeToReservationsForDate } from '../services/booking.js';
 import { createGuestLink } from '../services/invite.js';
 import { showMessage, navigateTo } from '../ui.js';
+import { getTodayDateString, validateLicensePlate } from '../utils.js'; // validateLicensePlate importiert
 import { setUnsubscriber, getState } from '../state.js';
 
 let selectedDate = new Date();
 let selectedTime = new Date();
 let durationMinutes = 120;
 let cameraStream = null;
-let scanningActive = false; // Steuert den Loop
+let scanningActive = false;
 
 export function initDashboardView() {
     document.getElementById('book-btn').addEventListener('click', () => {
@@ -101,25 +102,19 @@ function setupSmartBookingUI() {
 function setupCameraUI() {
     dom.scanPlateBtn.addEventListener('click', startCamera);
     dom.closeCameraBtn.addEventListener('click', stopCamera);
-    // Snap Button ist jetzt eher ein "Stop/Confirm" Button, da wir automatisch scannen
-    dom.snapBtn.addEventListener('click', stopCamera); 
+    dom.snapBtn.addEventListener('click', stopCamera);
 }
 
 async function startCamera() {
     try {
         dom.cameraOverlay.classList.remove('hidden');
         dom.scanStatusText.textContent = "Suche Kennzeichen...";
-        
-        // HD Stream anfordern
         cameraStream = await navigator.mediaDevices.getUserMedia({ 
-            video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } 
+            video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } } 
         });
         dom.cameraVideo.srcObject = cameraStream;
-        
-        // Starte den Dauer-Scan Loop
         scanningActive = true;
         startScanningLoop();
-        
     } catch (e) {
         console.error(e);
         alert("Kamera Fehler.");
@@ -128,7 +123,7 @@ async function startCamera() {
 }
 
 function stopCamera() {
-    scanningActive = false; // Loop stoppen
+    scanningActive = false;
     dom.cameraOverlay.classList.add('hidden');
     if (cameraStream) {
         cameraStream.getTracks().forEach(track => track.stop());
@@ -136,13 +131,10 @@ function stopCamera() {
     }
 }
 
-// --- NEUE CORE-SCAN LOGIK ---
-
+// SCAN LOOP MIT VALIDIERUNG
 async function startScanningLoop() {
-    // Tesseract Worker einmalig initialisieren
     const { createWorker } = Tesseract;
     const worker = await createWorker('deu');
-    // Optimierte Parameter: Nur Großbuchstaben & Zahlen, Single Line
     await worker.setParameters({ 
         tessedit_pageseg_mode: '7',
         tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789' 
@@ -152,131 +144,51 @@ async function startScanningLoop() {
     const ctx = canvas.getContext('2d');
     const video = dom.cameraVideo;
 
-    let consecutiveMatches = 0;
-    let lastResult = "";
-
     const scanFrame = async () => {
         if (!scanningActive || !video.videoWidth) return;
 
-        // 1. Bildausschnitt (Crop) vorbereiten
-        const sWidth = video.videoWidth * 0.8; // 80% Breite
-        const sHeight = video.videoHeight * 0.15; // 15% Höhe
+        // WIDE CROP (80% Breit, 15% Hoch)
+        const sWidth = video.videoWidth * 0.80;
+        const sHeight = video.videoHeight * 0.15;
         const sx = (video.videoWidth - sWidth) / 2;
         const sy = (video.videoHeight * 0.45) - (sHeight / 2);
 
-        canvas.width = sWidth * 2; // 2x Upscaling
+        canvas.width = sWidth * 2;
         canvas.height = sHeight * 2;
-        
         ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, canvas.width, canvas.height);
-        preprocessImage(canvas); // Kontrast-Filter
-
+        
+        // Kein manueller Filter mehr (Tesseract macht das besser bei Video-Feeds)
+        
         try {
             const { data: { text } } = await worker.recognize(canvas);
             
-            // 2. Parsen & Validieren
-            const detectedPlate = parseLicensePlate(text);
+            // HIER IST DIE MAGIE: Validierung gegen Datenbank
+            const check = validateLicensePlate(text);
 
-            if (detectedPlate) {
-                dom.scanStatusText.textContent = `Gefunden: ${detectedPlate}`;
+            if (check.valid) {
+                // TREFFER!
+                dom.scanStatusText.textContent = `Gefunden: ${check.formatted}`;
+                dom.bookingPlate.value = check.formatted;
                 
-                // 3. Stabilitäts-Check (Abgleich)
-                // Wenn wir 2x hintereinander das Gleiche (oder fast das Gleiche) sehen -> Treffer!
-                if (detectedPlate === lastResult) {
-                    consecutiveMatches++;
-                } else {
-                    consecutiveMatches = 1;
-                    lastResult = detectedPlate;
-                }
-
-                // Wenn stabil genug -> Übernehmen
-                if (consecutiveMatches >= 2) {
-                    dom.bookingPlate.value = detectedPlate;
-                    await worker.terminate();
-                    stopCamera();
-                    return; // Loop beenden
-                }
+                // Kurz grün blinken oder warten? Wir stoppen sofort.
+                await worker.terminate();
+                stopCamera();
+                return;
             } else {
-                dom.scanStatusText.textContent = "Scanne...";
-                consecutiveMatches = 0;
+                // Feedback geben, was er sieht (Debugging für User)
+                // Zeige nur Text, wenn er halbwegs wie ein Kennzeichen aussieht
+                if (text.length > 4) dom.scanStatusText.textContent = `Suche... (${text.replace(/[^A-Z0-9]/g,'')})`;
             }
         } catch (e) {
-            console.log("OCR Frame Error", e);
+            console.log(e);
         }
 
-        // Nächsten Frame anfordern (wenn noch aktiv)
         if (scanningActive) requestAnimationFrame(scanFrame);
     };
 
-    // Ersten Frame starten
     requestAnimationFrame(scanFrame);
 }
 
-function preprocessImage(canvas) {
-    const ctx = canvas.getContext('2d');
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const data = imageData.data;
-    
-    // Adaptiver Threshold Filter
-    let totalBrightness = 0;
-    for (let i = 0; i < data.length; i += 4) {
-        totalBrightness += (data[i] + data[i+1] + data[i+2]) / 3;
-    }
-    const threshold = (totalBrightness / (data.length / 4)) * 0.6; 
-
-    for (let i = 0; i < data.length; i += 4) {
-        const gray = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
-        const val = gray < threshold ? 0 : 255;
-        data[i] = val; data[i + 1] = val; data[i + 2] = val;
-    }
-    ctx.putImageData(imageData, 0, 0);
-}
-
-function fixCharacterConfusion(str, isNumberPart) {
-    if (!str) return "";
-    let res = str;
-    if (isNumberPart) {
-        res = res.replace(/O/g, '0').replace(/D/g, '0').replace(/I/g, '1').replace(/Z/g, '7').replace(/S/g, '5').replace(/B/g, '8').replace(/G/g, '6');
-    } else {
-        res = res.replace(/0/g, 'O').replace(/1/g, 'I').replace(/8/g, 'B').replace(/5/g, 'S').replace(/4/g, 'A');
-    }
-    return res;
-}
-
-function parseLicensePlate(text) {
-    // Nur Alphanumerik
-    const raw = text.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    
-    // Wir suchen das Muster von hinten: [STADT] [MITTE] [ZAHLEN]
-    // Die Zahlen am Ende sind unser Anker (1-4 Ziffern)
-    const match = raw.match(/([A-Z0-9]+)([A-Z]{1,2})([0-9]{1,4})$/);
-    
-    if (match) {
-        let prefixRaw = match[1]; // Kann "DBGL" oder "IBGL" sein
-        let mid = match[2];
-        let num = match[3];
-        
-        // Bereinigung des "D"-Problems (Abgleich)
-        // Deutsche Kennzeichen beginnen mit 1-3 Buchstaben.
-        // Wenn wir >3 Buchstaben haben, schneiden wir vorne ab.
-        let city = prefixRaw;
-        if (prefixRaw.length > 3) {
-            city = prefixRaw.substring(prefixRaw.length - 3); // Nimm nur die letzten 3
-        }
-        
-        // Fix Typo Confusion
-        city = fixCharacterConfusion(city, false);
-        mid = fixCharacterConfusion(mid, false);
-        num = fixCharacterConfusion(num, true);
-        
-        // Validierung: Stadt muss mind. 1 Zeichen sein
-        if (city.length >= 1) {
-            return `${city}-${mid}-${num}`;
-        }
-    }
-    return null;
-}
-
-// (Restliche UI-Helper Funktionen bleiben gleich wie vorher...)
 function setupHoldAction(button, action) {
     let interval; let timeout;
     const start = () => { action(); timeout = setTimeout(() => { interval = setInterval(() => { action(); }, 100); }, 400); };

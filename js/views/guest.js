@@ -2,6 +2,7 @@ import * as dom from '../dom.js';
 import { createBooking, deleteBooking, subscribeToStatus } from '../services/booking.js';
 import { showMessage } from '../ui.js';
 import { DEFAULT_PARKING_DURATION } from '../config.js';
+import { validateLicensePlate } from '../utils.js'; // Import für den Checker
 
 let currentGuestBookingId = null;
 let selectedDate = new Date();
@@ -10,7 +11,7 @@ let durationMinutes = 120;
 let cameraStream = null;
 let isSmartBookingInit = false; 
 let currentInputTarget = null; 
-let scanningActive = false; // Loop Control
+let scanningActive = false;
 
 export function initGuestView(hostData) {
     dom.guestHostName.textContent = hostData.hostName;
@@ -28,6 +29,7 @@ export function initGuestView(hostData) {
         resetBookingForm();
         
         if(dom.bookingPlate) dom.bookingPlate.placeholder = "Kennzeichen (Pflicht)";
+        
         if(dom.guestPlateInput.value.trim()) {
             dom.bookingPlate.value = dom.guestPlateInput.value.trim();
         }
@@ -49,7 +51,6 @@ export function initGuestView(hostData) {
     }
     
     dom.closeCameraBtn.addEventListener('click', stopCamera);
-    // Snap Button als "Stop" Button
     dom.snapBtn.addEventListener('click', stopCamera);
 }
 
@@ -121,6 +122,7 @@ function updateGuestStatusUI(elementId, status) {
 
 function setupGuestSmartBooking() {
     isSmartBookingInit = true;
+    
     dom.spotCards.forEach(card => {
         card.addEventListener('click', () => {
             dom.spotCards.forEach(c => c.classList.remove('selected'));
@@ -228,7 +230,6 @@ function stopCamera() {
     }
 }
 
-// SCAN LOOP (LIVE ABGLEICH)
 async function startScanningLoop() {
     const { createWorker } = Tesseract;
     const worker = await createWorker('deu');
@@ -241,9 +242,6 @@ async function startScanningLoop() {
     const ctx = canvas.getContext('2d');
     const video = dom.cameraVideo;
 
-    let consecutiveMatches = 0;
-    let lastResult = "";
-
     const scanFrame = async () => {
         if (!scanningActive || !video.videoWidth) return;
 
@@ -254,33 +252,20 @@ async function startScanningLoop() {
 
         canvas.width = sWidth * 2;
         canvas.height = sHeight * 2;
-        
         ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, canvas.width, canvas.height);
-        preprocessImage(canvas);
-
+        
         try {
             const { data: { text } } = await worker.recognize(canvas);
-            const detectedPlate = parseLicensePlate(text);
+            const check = validateLicensePlate(text);
 
-            if (detectedPlate) {
-                dom.scanStatusText.textContent = `Gefunden: ${detectedPlate}`;
-                
-                if (detectedPlate === lastResult) {
-                    consecutiveMatches++;
-                } else {
-                    consecutiveMatches = 1;
-                    lastResult = detectedPlate;
-                }
-
-                if (consecutiveMatches >= 2) {
-                    if (currentInputTarget) currentInputTarget.value = detectedPlate;
-                    await worker.terminate();
-                    stopCamera();
-                    return; 
-                }
+            if (check.valid) {
+                dom.scanStatusText.textContent = `Gefunden: ${check.formatted}`;
+                if(currentInputTarget) currentInputTarget.value = check.formatted;
+                await worker.terminate();
+                stopCamera();
+                return;
             } else {
-                dom.scanStatusText.textContent = "Scanne...";
-                consecutiveMatches = 0;
+                if (text.length > 4) dom.scanStatusText.textContent = `Suche... (${text.replace(/[^A-Z0-9]/g,'')})`;
             }
         } catch (e) {
             console.log(e);
@@ -290,61 +275,6 @@ async function startScanningLoop() {
     };
 
     requestAnimationFrame(scanFrame);
-}
-
-function preprocessImage(canvas) {
-    const ctx = canvas.getContext('2d');
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const data = imageData.data;
-    
-    let totalBrightness = 0;
-    for (let i = 0; i < data.length; i += 4) {
-        totalBrightness += (data[i] + data[i+1] + data[i+2]) / 3;
-    }
-    const threshold = (totalBrightness / (data.length / 4)) * 0.6; 
-
-    for (let i = 0; i < data.length; i += 4) {
-        const gray = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
-        const val = gray < threshold ? 0 : 255;
-        data[i] = val; data[i + 1] = val; data[i + 2] = val;
-    }
-    ctx.putImageData(imageData, 0, 0);
-}
-
-function fixCharacterConfusion(str, isNumberPart) {
-    if (!str) return "";
-    let res = str;
-    if (isNumberPart) {
-        res = res.replace(/O/g, '0').replace(/D/g, '0').replace(/I/g, '1').replace(/Z/g, '7').replace(/S/g, '5').replace(/B/g, '8').replace(/G/g, '6');
-    } else {
-        res = res.replace(/0/g, 'O').replace(/1/g, 'I').replace(/8/g, 'B').replace(/5/g, 'S').replace(/4/g, 'A');
-    }
-    return res;
-}
-
-function parseLicensePlate(text) {
-    const raw = text.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    const match = raw.match(/([A-Z0-9]+)([A-Z]{1,2})([0-9]{1,4})$/);
-    
-    if (match) {
-        let prefixRaw = match[1];
-        let mid = match[2];
-        let num = match[3];
-        
-        let city = prefixRaw;
-        if (prefixRaw.length > 3) {
-            city = prefixRaw.substring(prefixRaw.length - 3);
-        }
-        
-        city = fixCharacterConfusion(city, false);
-        mid = fixCharacterConfusion(mid, false);
-        num = fixCharacterConfusion(num, true);
-        
-        if (city.length >= 1) {
-            return `${city}-${mid}-${num}`;
-        }
-    }
-    return null;
 }
 
 function setupHoldAction(button, action) {
