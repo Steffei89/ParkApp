@@ -2,7 +2,7 @@ import * as dom from '../dom.js';
 import { createBooking, subscribeToMyBookings, deleteBooking, subscribeToStatus, subscribeToReservationsForDate } from '../services/booking.js';
 import { createGuestLink } from '../services/invite.js';
 import { showMessage, navigateTo } from '../ui.js';
-import { getTodayDateString, validateLicensePlate } from '../utils.js'; // validateLicensePlate importiert
+import { getTodayDateString, validateLicensePlate } from '../utils.js';
 import { setUnsubscriber, getState } from '../state.js';
 
 let selectedDate = new Date();
@@ -10,6 +10,7 @@ let selectedTime = new Date();
 let durationMinutes = 120;
 let cameraStream = null;
 let scanningActive = false;
+let lastValidPlate = ""; // Merkt sich das letzte gute Ergebnis
 
 export function initDashboardView() {
     document.getElementById('book-btn').addEventListener('click', () => {
@@ -102,13 +103,31 @@ function setupSmartBookingUI() {
 function setupCameraUI() {
     dom.scanPlateBtn.addEventListener('click', startCamera);
     dom.closeCameraBtn.addEventListener('click', stopCamera);
-    dom.snapBtn.addEventListener('click', stopCamera);
+    
+    // Manueller Auslöser: Übernimmt das aktuell erkannte (oder letzte gute) Ergebnis
+    dom.snapBtn.addEventListener('click', manualSnap); 
+}
+
+function manualSnap() {
+    if (lastValidPlate) {
+        dom.bookingPlate.value = lastValidPlate;
+        stopCamera();
+    } else {
+        // Feedback, falls noch nichts erkannt wurde
+        dom.scanStatusText.textContent = "Noch nichts erkannt...";
+        dom.scanStatusText.style.color = "#ff6b6b";
+        setTimeout(() => dom.scanStatusText.style.color = "white", 1000);
+    }
 }
 
 async function startCamera() {
     try {
         dom.cameraOverlay.classList.remove('hidden');
         dom.scanStatusText.textContent = "Suche Kennzeichen...";
+        dom.scanOverlayText.textContent = "Kennzeichen hier reinhalten";
+        dom.scanOverlayText.style.color = "white";
+        lastValidPlate = "";
+
         cameraStream = await navigator.mediaDevices.getUserMedia({ 
             video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } } 
         });
@@ -131,23 +150,26 @@ function stopCamera() {
     }
 }
 
-// SCAN LOOP MIT VALIDIERUNG
+// SCAN LOOP MIT LIVE-PREVIEW
 async function startScanningLoop() {
     const { createWorker } = Tesseract;
     const worker = await createWorker('deu');
     await worker.setParameters({ 
         tessedit_pageseg_mode: '7',
-        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789' 
+        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÜ0123456789- ' 
     });
 
     const canvas = dom.cameraCanvas;
     const ctx = canvas.getContext('2d');
     const video = dom.cameraVideo;
 
+    let consecutiveMatches = 0;
+    let lastResult = "";
+
     const scanFrame = async () => {
         if (!scanningActive || !video.videoWidth) return;
 
-        // WIDE CROP (80% Breit, 15% Hoch)
+        // CROP & PREPROCESS
         const sWidth = video.videoWidth * 0.80;
         const sHeight = video.videoHeight * 0.15;
         const sx = (video.videoWidth - sWidth) / 2;
@@ -156,28 +178,43 @@ async function startScanningLoop() {
         canvas.width = sWidth * 2;
         canvas.height = sHeight * 2;
         ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, canvas.width, canvas.height);
-        
-        // Kein manueller Filter mehr (Tesseract macht das besser bei Video-Feeds)
-        
+        preprocessImage(canvas);
+
         try {
             const { data: { text } } = await worker.recognize(canvas);
-            
-            // HIER IST DIE MAGIE: Validierung gegen Datenbank
             const check = validateLicensePlate(text);
 
             if (check.valid) {
-                // TREFFER!
-                dom.scanStatusText.textContent = `Gefunden: ${check.formatted}`;
-                dom.bookingPlate.value = check.formatted;
+                // LIVE VORSCHAU IM RAHMEN (AR Style)
+                dom.scanOverlayText.textContent = check.formatted;
+                dom.scanOverlayText.style.color = "#2ecc71"; // Grün für "Gültig"
+                dom.scanOverlayText.style.fontWeight = "800";
+                dom.scanOverlayText.style.fontSize = "1.2rem";
                 
-                // Kurz grün blinken oder warten? Wir stoppen sofort.
-                await worker.terminate();
-                stopCamera();
-                return;
+                dom.scanStatusText.textContent = "Gefunden! Drücken zum Übernehmen.";
+                
+                lastValidPlate = check.formatted; // Speichern für Klick
+
+                // Auto-Confirm bei hoher Sicherheit (3x gleich)
+                if (check.formatted === lastResult) {
+                    consecutiveMatches++;
+                } else {
+                    consecutiveMatches = 1;
+                    lastResult = check.formatted;
+                }
+
+                if (consecutiveMatches >= 3) {
+                    dom.bookingPlate.value = check.formatted;
+                    await worker.terminate();
+                    stopCamera();
+                    return;
+                }
             } else {
-                // Feedback geben, was er sieht (Debugging für User)
-                // Zeige nur Text, wenn er halbwegs wie ein Kennzeichen aussieht
-                if (text.length > 4) dom.scanStatusText.textContent = `Suche... (${text.replace(/[^A-Z0-9]/g,'')})`;
+                // Reset UI wenn verloren
+                dom.scanOverlayText.textContent = "Suche...";
+                dom.scanOverlayText.style.color = "rgba(255,255,255,0.7)";
+                dom.scanOverlayText.style.fontSize = "0.9rem";
+                consecutiveMatches = 0;
             }
         } catch (e) {
             console.log(e);
@@ -187,6 +224,25 @@ async function startScanningLoop() {
     };
 
     requestAnimationFrame(scanFrame);
+}
+
+function preprocessImage(canvas) {
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+    
+    let totalBrightness = 0;
+    for (let i = 0; i < data.length; i += 4) {
+        totalBrightness += (data[i] + data[i+1] + data[i+2]) / 3;
+    }
+    const threshold = (totalBrightness / (data.length / 4)) * 0.6; 
+
+    for (let i = 0; i < data.length; i += 4) {
+        const gray = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
+        const val = gray < threshold ? 0 : 255;
+        data[i] = val; data[i + 1] = val; data[i + 2] = val;
+    }
+    ctx.putImageData(imageData, 0, 0);
 }
 
 function setupHoldAction(button, action) {

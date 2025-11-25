@@ -2,7 +2,7 @@ import * as dom from '../dom.js';
 import { createBooking, deleteBooking, subscribeToStatus } from '../services/booking.js';
 import { showMessage } from '../ui.js';
 import { DEFAULT_PARKING_DURATION } from '../config.js';
-import { validateLicensePlate } from '../utils.js'; // Import für den Checker
+import { validateLicensePlate } from '../utils.js';
 
 let currentGuestBookingId = null;
 let selectedDate = new Date();
@@ -12,6 +12,7 @@ let cameraStream = null;
 let isSmartBookingInit = false; 
 let currentInputTarget = null; 
 let scanningActive = false;
+let lastValidPlate = "";
 
 export function initGuestView(hostData) {
     dom.guestHostName.textContent = hostData.hostName;
@@ -51,7 +52,18 @@ export function initGuestView(hostData) {
     }
     
     dom.closeCameraBtn.addEventListener('click', stopCamera);
-    dom.snapBtn.addEventListener('click', stopCamera);
+    dom.snapBtn.addEventListener('click', manualSnap);
+}
+
+function manualSnap() {
+    if (lastValidPlate) {
+        if (currentInputTarget) currentInputTarget.value = lastValidPlate;
+        stopCamera();
+    } else {
+        dom.scanStatusText.textContent = "Nichts erkannt. Halte ruhig!";
+        dom.scanStatusText.style.color = "#ff6b6b";
+        setTimeout(() => dom.scanStatusText.style.color = "white", 1500);
+    }
 }
 
 async function handleParkNow() {
@@ -208,8 +220,12 @@ async function startCamera(mode) {
     try {
         dom.cameraOverlay.classList.remove('hidden');
         dom.scanStatusText.textContent = "Suche Kennzeichen...";
+        dom.scanOverlayText.textContent = "Kennzeichen hier reinhalten";
+        dom.scanOverlayText.style.color = "white";
+        lastValidPlate = "";
+
         cameraStream = await navigator.mediaDevices.getUserMedia({ 
-            video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } 
+            video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } } 
         });
         dom.cameraVideo.srcObject = cameraStream;
         scanningActive = true;
@@ -235,17 +251,20 @@ async function startScanningLoop() {
     const worker = await createWorker('deu');
     await worker.setParameters({ 
         tessedit_pageseg_mode: '7',
-        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789' 
+        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÜ0123456789- ' 
     });
 
     const canvas = dom.cameraCanvas;
     const ctx = canvas.getContext('2d');
     const video = dom.cameraVideo;
 
+    let consecutiveMatches = 0;
+    let lastResult = "";
+
     const scanFrame = async () => {
         if (!scanningActive || !video.videoWidth) return;
 
-        const sWidth = video.videoWidth * 0.8;
+        const sWidth = video.videoWidth * 0.80;
         const sHeight = video.videoHeight * 0.15;
         const sx = (video.videoWidth - sWidth) / 2;
         const sy = (video.videoHeight * 0.45) - (sHeight / 2);
@@ -253,19 +272,40 @@ async function startScanningLoop() {
         canvas.width = sWidth * 2;
         canvas.height = sHeight * 2;
         ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, canvas.width, canvas.height);
-        
+        preprocessImage(canvas);
+
         try {
             const { data: { text } } = await worker.recognize(canvas);
             const check = validateLicensePlate(text);
 
             if (check.valid) {
-                dom.scanStatusText.textContent = `Gefunden: ${check.formatted}`;
-                if(currentInputTarget) currentInputTarget.value = check.formatted;
-                await worker.terminate();
-                stopCamera();
-                return;
+                dom.scanOverlayText.textContent = check.formatted;
+                dom.scanOverlayText.style.color = "#2ecc71";
+                dom.scanOverlayText.style.fontWeight = "800";
+                dom.scanOverlayText.style.fontSize = "1.2rem";
+                
+                dom.scanStatusText.textContent = "Gefunden! Drücken zum Übernehmen.";
+                
+                lastValidPlate = check.formatted; 
+
+                if (check.formatted === lastResult) {
+                    consecutiveMatches++;
+                } else {
+                    consecutiveMatches = 1;
+                    lastResult = check.formatted;
+                }
+
+                if (consecutiveMatches >= 3) {
+                    if(currentInputTarget) currentInputTarget.value = check.formatted;
+                    await worker.terminate();
+                    stopCamera();
+                    return;
+                }
             } else {
-                if (text.length > 4) dom.scanStatusText.textContent = `Suche... (${text.replace(/[^A-Z0-9]/g,'')})`;
+                dom.scanOverlayText.textContent = "Suche...";
+                dom.scanOverlayText.style.color = "rgba(255,255,255,0.7)";
+                dom.scanOverlayText.style.fontSize = "0.9rem";
+                consecutiveMatches = 0;
             }
         } catch (e) {
             console.log(e);
@@ -275,6 +315,25 @@ async function startScanningLoop() {
     };
 
     requestAnimationFrame(scanFrame);
+}
+
+function preprocessImage(canvas) {
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+    
+    let totalBrightness = 0;
+    for (let i = 0; i < data.length; i += 4) {
+        totalBrightness += (data[i] + data[i+1] + data[i+2]) / 3;
+    }
+    const threshold = (totalBrightness / (data.length / 4)) * 0.6; 
+
+    for (let i = 0; i < data.length; i += 4) {
+        const gray = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
+        const val = gray < threshold ? 0 : 255;
+        data[i] = val; data[i + 1] = val; data[i + 2] = val;
+    }
+    ctx.putImageData(imageData, 0, 0);
 }
 
 function setupHoldAction(button, action) {

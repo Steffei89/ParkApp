@@ -73,6 +73,7 @@ export const cameraCanvas = document.getElementById("camera-canvas");
 export const snapBtn = document.getElementById("snap-btn");
 export const closeCameraBtn = document.getElementById("close-camera-btn");
 export const scanStatusText = document.getElementById("scan-status-text");
+export const scanOverlayText = document.querySelector(".scan-text"); // NEU: Text im Rahmen
 
 // Overview
 export const overviewDatePicker = document.getElementById("overview-date-picker");
@@ -100,6 +101,6 @@ export const adminViewBookings = document.getElementById("admin-view-bookings");
 export const adminUserList = document.getElementById("admin-user-list");
 export const adminBookingList = document.getElementById("admin-booking-list");
 
-// --- INVITE SPLIT BUTTONS (NEU) ---
+// Invite
 export const inviteWhatsappBtn = document.getElementById("invite-whatsapp-btn");
 export const inviteCopyBtn = document.getElementById("invite-copy-btn");
