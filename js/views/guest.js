@@ -14,7 +14,7 @@ let isSmartBookingInit = false;
 let currentInputTarget = null; 
 let scanningActive = false;
 let lastResultCache = "";
-let scanBuffer = []; // Voting Buffer
+let scanBuffer = [];
 
 export function initGuestView(hostData) {
     dom.guestHostName.textContent = hostData.hostName;
@@ -53,15 +53,28 @@ function manualSnap() {
     if (lastResultCache && lastResultCache.length > 3) {
         if(currentInputTarget) currentInputTarget.value = lastResultCache;
         stopCamera();
+    } else if (dom.scanOverlayText.textContent && dom.scanOverlayText.textContent !== "Suche...") {
+        // Fallback: Nehme was da steht, auch wenn unsicher
+        const raw = dom.scanOverlayText.textContent.replace('?', '');
+        if (raw.length > 2) {
+             if(currentInputTarget) currentInputTarget.value = raw;
+             stopCamera();
+        } else {
+            showErrorShake();
+        }
     } else {
-        const oldText = dom.scanStatusText.textContent;
-        dom.scanStatusText.textContent = "Warte auf sichere Erkennung...";
-        dom.scanStatusText.style.color = "var(--danger)";
-        setTimeout(() => {
-            dom.scanStatusText.textContent = oldText;
-            dom.scanStatusText.style.color = "white";
-        }, 1500);
+        showErrorShake();
     }
+}
+
+function showErrorShake() {
+    const oldText = dom.scanStatusText.textContent;
+    dom.scanStatusText.textContent = "Nichts erkannt!";
+    dom.scanStatusText.style.color = "var(--danger)";
+    setTimeout(() => {
+        dom.scanStatusText.textContent = oldText;
+        dom.scanStatusText.style.color = "white";
+    }, 1500);
 }
 
 async function handleParkNow() {
@@ -230,8 +243,8 @@ function stopCamera() {
 
 async function startScanningLoop() {
     const { createWorker } = Tesseract;
-    const worker = await createWorker('deu');
-    // Whitelist auch hier aktivieren!
+    // 'eng' ist oft schneller und reicht für Blockbuchstaben. 'deu' ist genauer bei Umlauten.
+    const worker = await createWorker('eng');
     await worker.setParameters({ 
         tessedit_pageseg_mode: '7',
         tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÜ0123456789' 
@@ -261,34 +274,35 @@ async function startScanningLoop() {
             try {
                 const { data: { text, confidence } } = await worker.recognize(canvas);
                 
-                if (confidence > 60) {
-                    const check = validateLicensePlate(text);
-                    const raw = text.replace(/[^A-Z0-9]/g, '');
+                // Wir zeigen JETZT IMMER an, was er liest
+                const check = validateLicensePlate(text);
+                const raw = text.replace(/[^A-Z0-9]/g, '');
 
-                    if (check.valid) {
-                        scanBuffer.push(check.formatted);
-                        if (scanBuffer.length > 5) scanBuffer.shift();
+                if (check.valid && confidence > 40) {
+                    scanBuffer.push(check.formatted);
+                    if (scanBuffer.length > 5) scanBuffer.shift();
 
-                        const counts = {};
-                        let maxCount = 0;
-                        let winner = null;
+                    const counts = {};
+                    let maxCount = 0;
+                    let winner = null;
 
-                        scanBuffer.forEach(plate => {
-                            counts[plate] = (counts[plate] || 0) + 1;
-                            if (counts[plate] > maxCount) {
-                                maxCount = counts[plate];
-                                winner = plate;
-                            }
-                        });
+                    scanBuffer.forEach(plate => {
+                        counts[plate] = (counts[plate] || 0) + 1;
+                        if (counts[plate] > maxCount) { maxCount = counts[plate]; winner = plate; }
+                    });
 
-                        if (maxCount >= 3) {
-                            dom.scanOverlayText.textContent = winner;
-                            dom.scanOverlayText.classList.add('valid');
-                            dom.scanStatusText.textContent = "Gefunden! Auslöser drücken.";
-                            lastResultCache = winner;
-                        }
+                    if (maxCount >= 2) {
+                        dom.scanOverlayText.textContent = winner;
+                        dom.scanOverlayText.classList.add('valid');
+                        dom.scanStatusText.textContent = "Gefunden! Auslöser drücken.";
+                        lastResultCache = winner;
+                    }
+                } else {
+                    if (raw.length > 2) {
+                         dom.scanOverlayText.classList.remove('valid');
+                         dom.scanOverlayText.textContent = raw + "?";
                     } else {
-                        if (raw.length > 2) dom.scanOverlayText.textContent = raw + "?";
+                        dom.scanOverlayText.textContent = "Suche...";
                     }
                 }
             } catch (e) {
@@ -307,11 +321,18 @@ function preprocessImage(canvas) {
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imageData.data;
     
-    // Binarisierung: Hartes Schwarz-Weiß für bessere Lesbarkeit
+    // Nur Graustufen + leichter Kontrast (kein hartes Schwellenwert-Verfahren mehr)
     for (let i = 0; i < data.length; i += 4) {
-        const gray = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
-        const val = gray > 110 ? 255 : 0;
-        data[i] = val; data[i + 1] = val; data[i + 2] = val;
+        let gray = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
+        
+        // Kontrast leicht erhöhen
+        if(gray < 80) gray = gray * 0.8;
+        if(gray > 160) gray = gray * 1.1;
+        if(gray > 255) gray = 255;
+        
+        data[i] = gray; 
+        data[i + 1] = gray; 
+        data[i + 2] = gray;
     }
     ctx.putImageData(imageData, 0, 0);
 }

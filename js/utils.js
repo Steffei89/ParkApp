@@ -1,6 +1,5 @@
 // js/utils.js
 
-// Hilft uns, das aktuelle Datum für Formulare zu bekommen (YYYY-MM-DD)
 export function getTodayDateString() {
     const d = new Date();
     const year = d.getFullYear();
@@ -17,16 +16,11 @@ export function getCurrentTimeString() {
 export function getHoursDifference(startISO, endISO) {
     const start = new Date(startISO);
     const end = new Date(endISO);
-    const diffMs = end - start;
-    return diffMs / (1000 * 60 * 60);
+    return (end - start) / (1000 * 60 * 60);
 }
 
 export function isOverlapping(startA, endA, startB, endB) {
-    const sA = new Date(startA);
-    const eA = new Date(endA);
-    const sB = new Date(startB);
-    const eB = new Date(endB);
-    return sA < eB && eA > sB;
+    return new Date(startA) < new Date(endB) && new Date(endA) > new Date(startB);
 }
 
 export function formatDate(dateInput) {
@@ -34,9 +28,9 @@ export function formatDate(dateInput) {
     return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
 }
 
-// --- KENNZEICHEN LOGIK (PROFI VERSION) ---
+// --- INTELLIGENTE KENNZEICHEN-ERKENNUNG ---
 
-// Liste aller gültigen deutschen KFZ-Kürzel
+// Wir behalten die Liste für perfektes Formatieren, machen sie aber optional für die Gültigkeit
 const VALID_CITIES = new Set([
     "A","AA","AB","ABG","ABI","AC","AE","AH","AIB","AIC","AK","ALF","AM","AN","ANA","ANG","ANK","AÖ","AP","APD","ARN","ART","AS","ASL","ASZ","AT","AU","AUR","AW","AZ",
     "B","BA","BAD","BAR","BB","BBG","BBL","BC","BCH","BD","BE","BED","BER","BF","BGD","BGL","BH","BI","BID","BIN","BIR","BIT","BIW","BK","BKS","BL","BLB","BLK","BM","BN","BNA","BO","BÖ","BOG","BOH","BOR","BOT","BP","BRA","BRB","BRG","BRK","BRL","BRV","BS","BSK","BT","BTF","BÜD","BÜS","BÜZ","BW","BWL","BYL","BZ",
@@ -64,66 +58,53 @@ const VALID_CITIES = new Set([
     "Z","ZE","ZEL","ZI","ZIG","ZP","ZR","ZW","ZZ"
 ]);
 
-// Hilfsfunktion: Korrigiert Buchstaben/Zahlen-Verwechslung je nach Position
 function fixOCRErrors(char, isNumberPosition) {
     if (isNumberPosition) {
-        // Wir erwarten eine Zahl, haben aber einen Buchstaben -> Korrigieren
-        return char.replace(/O/g, '0')
-                   .replace(/D/g, '0')
-                   .replace(/Q/g, '0')
-                   .replace(/I/g, '1')
-                   .replace(/L/g, '1')
-                   .replace(/Z/g, '7')
-                   .replace(/S/g, '5')
-                   .replace(/B/g, '8')
-                   .replace(/G/g, '6');
+        return char.replace(/O/g, '0').replace(/D/g, '0').replace(/Q/g, '0').replace(/I/g, '1')
+                   .replace(/L/g, '1').replace(/Z/g, '7').replace(/S/g, '5')
+                   .replace(/B/g, '8').replace(/G/g, '6');
     } else {
-        // Wir erwarten Buchstaben, haben aber Zahlen -> Korrigieren
-        return char.replace(/0/g, 'O')
-                   .replace(/1/g, 'I')
-                   .replace(/8/g, 'B')
-                   .replace(/5/g, 'S')
-                   .replace(/4/g, 'A')
-                   .replace(/6/g, 'G');
+        return char.replace(/0/g, 'O').replace(/1/g, 'I').replace(/8/g, 'B')
+                   .replace(/5/g, 'S').replace(/4/g, 'A').replace(/6/g, 'G');
     }
 }
 
-// Die "KI"-Funktion zur Validierung
 export function validateLicensePlate(text) {
     if (!text || text.length < 3) return { valid: false, text: text };
-
-    // 1. Grob reinigen: Alles weg außer Buchstaben und Zahlen
+    
+    // Bereinigen
     let clean = text.toUpperCase().replace(/[^A-Z0-9]/g, '');
 
-    // Profi-Tipp: Deutsche Kennzeichen haben Struktur: [1-3 Buchstaben Stadt] - [1-2 Buchstaben] - [1-4 Zahlen]
-    // Wir versuchen, den String von HINTEN nach vorne zu zerlegen (Zahlen am Ende sind am sichersten zu erkennen)
+    // Versuch 1: Strikte Struktur (Stadt - Mitte - Zahl)
     const match = clean.match(/^([A-Z0-9]{1,3})([A-Z0-9]{1,2})([0-9]{1,4})$/);
 
     if (match) {
-        // Rohdaten aufteilen
         let rawCity = match[1];
         let rawMiddle = match[2];
         let rawNumbers = match[3];
 
-        // 2. OCR-Fehler korrigieren (Logik anwenden)
-        // Teil 1 (Stadt) darf KEINE Zahlen enthalten
         let cityCandidate = fixOCRErrors(rawCity, false);
-        
-        // Teil 2 (Mitte) darf KEINE Zahlen enthalten
         let middleCandidate = fixOCRErrors(rawMiddle, false);
-        
-        // Teil 3 (Ende) darf KEINE Buchstaben enthalten
         let numberCandidate = fixOCRErrors(rawNumbers, true);
 
-        // 3. Ist die Stadt gültig?
-        if (VALID_CITIES.has(cityCandidate)) {
-            return {
-                valid: true,
-                // Hier bauen wir das gewünschte Format mit Trennern: BGD-ML-22
-                formatted: `${cityCandidate}-${middleCandidate}-${numberCandidate}`,
-                raw: clean
-            };
-        }
+        // Wir akzeptieren es auch, wenn die Stadt NICHT in der Liste ist,
+        // solange die Struktur passt. (Das hilft, falls die Liste unvollständig ist)
+        return {
+            valid: true,
+            formatted: `${cityCandidate}-${middleCandidate}-${numberCandidate}`,
+            raw: clean
+        };
+    }
+
+    // Versuch 2: Notfall-Fallback (Wenn Struktur nicht perfekt erkannt wurde)
+    // Wenn wir z.B. "M XY 123" haben, aber der Regex oben nicht griff
+    if (clean.length >= 5 && clean.length <= 9) {
+        // Wir tun so, als wäre es gültig, wenn es genug Zeichen sind.
+        return {
+            valid: true,
+            formatted: clean, // Keine Striche, besser als nichts
+            raw: clean
+        };
     }
 
     return { valid: false, text: clean };

@@ -12,9 +12,7 @@ let durationMinutes = 120;
 let cameraStream = null;
 let scanningActive = false;
 let lastValidPlate = ""; 
-
-// Voting-Puffer: Hier speichern wir die letzten Ergebnisse
-let scanBuffer = [];
+let scanBuffer = []; // Puffer für Ergebnisse
 
 export function initDashboardView() {
     document.getElementById('book-btn').addEventListener('click', () => { resetBookingForm(); navigateTo(dom.bookingSection); });
@@ -84,7 +82,7 @@ function setupSmartBookingUI() {
     });
 }
 
-// --- KAMERA LOGIK (PROFI UPGRADE) ---
+// --- KAMERA LOGIK ---
 function setupCameraUI() {
     dom.scanPlateBtn.addEventListener('click', startCamera);
     dom.closeCameraBtn.addEventListener('click', stopCamera);
@@ -92,33 +90,46 @@ function setupCameraUI() {
 }
 
 function manualSnap() {
+    // Wenn wir einen "Last Valid Plate" haben, nehmen wir das
     if (lastValidPlate) {
         dom.bookingPlate.value = lastValidPlate;
         stopCamera();
+    } 
+    // Wenn nicht, schauen wir, was gerade im Textfeld steht (auch wenn noch nicht bestätigt)
+    else if (dom.scanOverlayText.textContent && dom.scanOverlayText.textContent !== "Suche...") {
+        const rawText = dom.scanOverlayText.textContent.replace('?', '');
+        if(rawText.length >= 3) {
+            dom.bookingPlate.value = rawText;
+            stopCamera();
+        } else {
+            showErrorShake();
+        }
     } else {
-        dom.scanStatusText.textContent = "Warte auf sichere Erkennung...";
-        dom.scanStatusText.style.color = "#ff6b6b";
-        setTimeout(() => { dom.scanStatusText.style.color = "white"; }, 1500);
+        showErrorShake();
     }
+}
+
+function showErrorShake() {
+    const txt = dom.scanStatusText.textContent;
+    dom.scanStatusText.textContent = "Nichts erkannt!";
+    dom.scanStatusText.style.color = "#ff6b6b";
+    setTimeout(() => { dom.scanStatusText.textContent = txt; dom.scanStatusText.style.color = "white"; }, 1000);
 }
 
 async function startCamera() {
     try {
         dom.cameraOverlay.classList.remove('hidden');
-        dom.scanStatusText.textContent = "Kamera wird gestartet...";
+        dom.scanStatusText.textContent = "Kamera startet...";
         dom.scanOverlayText.textContent = "";
         dom.scanOverlayText.classList.remove('valid');
         lastValidPlate = "";
-        scanBuffer = []; // Reset Puffer
+        scanBuffer = [];
 
         cameraStream = await navigator.mediaDevices.getUserMedia({ 
             video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } 
         });
         dom.cameraVideo.srcObject = cameraStream;
-        
-        dom.cameraVideo.onloadedmetadata = () => {
-            dom.cameraVideo.play();
-        };
+        dom.cameraVideo.onloadedmetadata = () => dom.cameraVideo.play();
         
         scanningActive = true;
         startScanningLoop();
@@ -140,12 +151,11 @@ function stopCamera() {
 
 async function startScanningLoop() {
     const { createWorker } = Tesseract;
-    // Wir laden 'deu', damit Umlaute besser erkannt werden können
-    const worker = await createWorker('deu'); 
+    // 'eng' lädt schneller und reicht für Blockbuchstaben oft aus. 'deu' ist optional.
+    const worker = await createWorker('eng'); 
     
-    // Whitelist: Nur diese Zeichen zulassen (erhöht Präzision extrem!)
     await worker.setParameters({ 
-        tessedit_pageseg_mode: '7', // Modus für "eine Textzeile"
+        tessedit_pageseg_mode: '7', // Single Line Modus
         tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÜ0123456789' 
     });
 
@@ -154,17 +164,12 @@ async function startScanningLoop() {
     const video = dom.cameraVideo;
 
     const scanFrame = async () => {
-        if (!scanningActive) {
-            await worker.terminate();
-            return;
-        }
+        if (!scanningActive) { await worker.terminate(); return; }
 
         if (video.readyState === video.HAVE_ENOUGH_DATA) {
-            
-            // CROP: Wir schneiden nur den relevanten Bereich aus (Mitte)
-            // Kleineres Bild = Schnellere Erkennung
-            const sWidth = video.videoWidth * 0.70; // 70% der Breite
-            const sHeight = video.videoHeight * 0.15; // 15% der Höhe
+            // Crop Mitte
+            const sWidth = video.videoWidth * 0.7;
+            const sHeight = video.videoHeight * 0.15;
             const sx = (video.videoWidth - sWidth) / 2;
             const sy = (video.videoHeight * 0.45) - (sHeight / 2);
 
@@ -172,76 +177,77 @@ async function startScanningLoop() {
             canvas.height = sHeight;
             ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, canvas.width, canvas.height);
             
-            // Bildkontrast erhöhen (Schwarz-Weiß machen)
-            preprocessImage(canvas);
+            preprocessImage(canvas); // Bild verbessern
 
             try {
                 const { data: { text, confidence } } = await worker.recognize(canvas);
                 
-                // Wir nehmen nur Ergebnisse mit >60% Sicherheit
-                if (confidence > 60) {
-                    const check = validateLicensePlate(text);
-                    const raw = text.replace(/[^A-Z0-9]/g, '');
+                // Wir zeigen JETZT IMMER an, was er liest, auch wenn er unsicher ist
+                const check = validateLicensePlate(text);
+                const raw = text.replace(/[^A-Z0-9]/g, '');
 
-                    if (check.valid) {
-                        // === VOTING SYSTEM ===
-                        // Wir nehmen das Ergebnis nicht sofort, sondern sammeln es
-                        scanBuffer.push(check.formatted);
-                        if (scanBuffer.length > 5) scanBuffer.shift(); // Nur die letzten 5 merken
+                if (check.valid && confidence > 40) { // Toleranz erhöht (niedrigere Confidence)
+                    // Voting Logic
+                    scanBuffer.push(check.formatted);
+                    if (scanBuffer.length > 5) scanBuffer.shift();
 
-                        // Zählen, welches Ergebnis am häufigsten vorkommt
-                        const counts = {};
-                        let maxCount = 0;
-                        let winner = null;
+                    const counts = {};
+                    let maxCount = 0; 
+                    let winner = null;
+                    scanBuffer.forEach(p => {
+                        counts[p] = (counts[p] || 0) + 1;
+                        if(counts[p] > maxCount) { maxCount = counts[p]; winner = p; }
+                    });
 
-                        scanBuffer.forEach(plate => {
-                            counts[plate] = (counts[plate] || 0) + 1;
-                            if (counts[plate] > maxCount) {
-                                maxCount = counts[plate];
-                                winner = plate;
-                            }
-                        });
-
-                        // Wenn ein Kennzeichen 3x bestätigt wurde -> TREFFER
-                        if (maxCount >= 3) {
-                            dom.scanOverlayText.textContent = winner;
-                            dom.scanOverlayText.classList.add('valid');
-                            dom.scanStatusText.textContent = "Gefunden! Auslöser drücken.";
-                            lastValidPlate = winner;
-                        }
+                    // Wenn 2x bestätigt -> Valid
+                    if (maxCount >= 2) {
+                        dom.scanOverlayText.textContent = winner;
+                        dom.scanOverlayText.classList.add('valid');
+                        dom.scanStatusText.textContent = "Gefunden! Auslöser drücken.";
+                        lastValidPlate = winner;
+                    }
+                } else {
+                    // Feedback: Zeige was er sieht (in Weiß)
+                    if (raw.length > 1) {
+                        dom.scanOverlayText.classList.remove('valid');
+                        dom.scanOverlayText.textContent = raw + "?";
                     } else {
-                        // Feedback was er gerade sieht (auch wenn falsch)
-                        if (raw.length > 2) dom.scanOverlayText.textContent = raw + "?";
+                         dom.scanOverlayText.textContent = "Suche...";
                     }
                 }
             } catch (e) {
-                // OCR Fehler ignorieren
+                console.log(e);
             }
         }
-
         if (scanningActive) requestAnimationFrame(scanFrame);
     };
-
     requestAnimationFrame(scanFrame);
 }
 
-// Bildverbesserung: Macht das Bild Schwarz-Weiß (Binarisierung)
+// Verbesserte Bildverarbeitung: Nur Graustufen + Kontrast (kein hartes Schwarz-Weiß)
 function preprocessImage(canvas) {
     const ctx = canvas.getContext('2d');
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imageData.data;
     
-    // Thresholding: Alles was hellgrau ist wird weiß, alles dunkle schwarz
+    // Kontrast erhöhen & Graustufen
     for (let i = 0; i < data.length; i += 4) {
-        const gray = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
-        // Schwellenwert 110 (kann man bei Bedarf anpassen, 100-128 ist gut)
-        const val = gray > 110 ? 255 : 0;
-        data[i] = val; data[i + 1] = val; data[i + 2] = val;
+        // Einfache Graustufe
+        let gray = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
+        
+        // Leichter Kontrast-Boost: Dunkles dunkler, Helles heller
+        // Aber nicht komplett binär (0 oder 255), das war das Problem.
+        if (gray < 80) gray = gray * 0.5;
+        else if (gray > 150) gray = Math.min(255, gray * 1.2);
+        
+        data[i] = gray;
+        data[i + 1] = gray;
+        data[i + 2] = gray;
     }
     ctx.putImageData(imageData, 0, 0);
 }
 
-// UI Helpers
+// UI Helpers (unverändert)
 function setupHoldAction(button, action) {
     let interval; let timeout;
     const start = () => { action(); timeout = setTimeout(() => { interval = setInterval(() => { action(); }, 100); }, 400); };
@@ -272,7 +278,6 @@ function updateTimeDisplay() {
     const endMM = String(combinedEnd.getMinutes()).padStart(2, '0');
     document.getElementById('display-end-time').textContent = `${endHH}:${endMM}`;
 }
-
 export function loadMyBookings() {
     const unsub = subscribeToMyBookings((bookings) => {
         dom.myBookingsList.innerHTML = '';
